@@ -88,16 +88,14 @@ class WIMP(pl.LightningModule):
                                          1, -1)
         adjacency = torch.ones(gan_features.size(1), gan_features.size(1)).to(
             gan_features.get_device()).float().unsqueeze(0).repeat(gan_features.size(0), 1, 1)
+        adjacency.requires_grad = True
         adjacency = adjacency * num_agent_mask.unsqueeze(1) * num_agent_mask.unsqueeze(2)
 
-        torch.onnx.export(self.gat, (gan_features, adjacency), "gat.onnx", verbose=True, input_names=["gan_features", "adjacency"])
-        exit(True)
-        
         graph_output, att_weights = self.gat(gan_features, adjacency)
         graph_output = graph_output.narrow(1, 0, 1).squeeze(1)
         if self.hparams.batch_norm:
             graph_output = self.encoding_bn(graph_output.transpose(1, 2).contiguous())
-            graphoutput = graph_output.transpose(1, 2).contiguous()
+            graph_output = graph_output.transpose(1, 2).contiguous() # it may be wrong
         if self.hparams.hidden_transform:
             hidden_decoder = torch.chunk(graph_output.view(-1, self.hparams.num_layers*2, self.hparams.hidden_dim).transpose(0,1).contiguous(), 2, dim=0)
         else:
@@ -111,17 +109,17 @@ class WIMP(pl.LightningModule):
             last_n_predictions.append(agent_features.narrow(dim=1, start=agent_features.size(1)-i, length=i))
         prediction_tensor, waypoints_prediction_tensor, prediction_stats = self.decoder(decoder_input_features, last_n_predictions, hidden_decoder, outsteps, ifc_helpers=ifc_helpers, sample_next=sample_next, map_estimate=map_estimate)
 
-        
-        return prediction_tensor, [waypoints_prediction_tensor, waypoint_predictions_tensor_encoder], prediction_stats, att_weights
+        return prediction_tensor, [waypoints_prediction_tensor, waypoint_predictions_tensor_encoder], prediction_stats, att_weights, adjacency
 
     def training_step(self, batch, batch_idx):
         # Compute predictions
         input_dict, target_dict = batch
-        preds, waypoint_preds, all_dist_params, _ = self(**input_dict)
-
+        preds, waypoint_preds, all_dist_params, _, adjacency = self(**input_dict)
         # Compute loss and metrics
         loss, metrics = self.eval_preds(preds, target_dict, waypoint_preds)
         agent_mean_ade, agent_mean_fde, agent_mean_mr = metrics
+        adjacency.retain_grad()
+        pl.TrainResult(loss)
 
         # Log results from training step
         result = pl.TrainResult(loss)
@@ -134,7 +132,7 @@ class WIMP(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         # Compute predictions
         input_dict, target_dict = batch
-        preds, waypoint_preds, all_dist_params, _ = self(**input_dict)
+        preds, waypoint_preds, all_dist_params, _, adjacency = self(**input_dict)
 
         # Compute loss and metrics
         loss, metrics = self.eval_preds(preds, target_dict, waypoint_preds)
@@ -151,10 +149,7 @@ class WIMP(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         # Compute predictions
         input_dict, label = batch
-        preds, waypoint_preds, all_dist_params, att_weights = self(**input_dict)
-#         print(input_dict.keys())
-#         print(label.keys())
-#         exit(True)
+        preds, waypoint_preds, all_dist_params, att_weights, adjacency = self(**input_dict)
         
         if self.hparams.save_json:
             for i, p in enumerate(preds):
@@ -248,3 +243,4 @@ class WIMP(pl.LightningModule):
                             target_dict['agent_labels'])
 
         return total_loss, (agent_mean_ade, agent_mean_fde, agent_mean_mr)
+

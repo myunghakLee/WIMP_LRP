@@ -31,7 +31,6 @@ def parse_arguments():
     else:
         raise NotImplementedError
 
-    print(parser)
     # Load model specific args
     if temp_args.model_name == 'WIMP':
         parser = WIMP.add_model_specific_args(parser)
@@ -90,6 +89,7 @@ def cli_main(args):
     dm = ArgoverseDataModule(args)
 
     # Initialize selected model
+    print(args)
     if args.model_name == 'WIMP':
         model = WIMP(args)
 
