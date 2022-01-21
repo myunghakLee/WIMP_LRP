@@ -16,6 +16,7 @@ from src.util.loss import l1_ewta_loss, l1_ewta_loss_prob, l1_ewta_waypoint_loss
     l1_ewta_encoder_waypoint_loss
 
 
+# +
 class WIMP(pl.LightningModule):
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -26,7 +27,7 @@ class WIMP(pl.LightningModule):
         parser.add_argument("--input-dim", type=int, default=2, help=" input dimension")
         parser.add_argument("--output-dim", type=int, default=2, help=" output dimension")
         parser.add_argument("--graph-iter", type=int, default=1, help="Number of iterations of graph message passing") # NOQA
-        parser.add_argument("--attention-heads", type=int, default=1, help="Number of GAT attention heads") # NOQA
+        parser.add_argument("--attention-heads", type=int, default=4, help="Number of GAT attention heads") # NOQA
         parser.add_argument("--num-layers", type=int, default=4, help="Number of RNN layers to use")
         parser.add_argument("--hidden-transform", action='store_true', help="Use hidden state as input to GAT") # NOQA
         parser.add_argument("--use-centerline-features", action='store_true', help="Use Centerline Features") # NOQA
@@ -67,6 +68,7 @@ class WIMP(pl.LightningModule):
                                        self.hparams.graph_iter, self.hparams.attention_heads,
                                        self.hparams.dropout)
         self.decoder = WIMPDecoder(self.hparams)
+        self.slicing = lambda a, idx: torch.cat((a[:, :idx], a[:, idx+1:]), axis=1)
 
     def forward(self, agent_features, social_features, adjacency, num_agent_mask, outsteps=30,
                 social_label_features=None, label_adjacency=None, classmate_forcing=True,
@@ -118,15 +120,9 @@ class WIMP(pl.LightningModule):
         # Compute loss and metrics
         loss, metrics = self.eval_preds(preds, target_dict, waypoint_preds)
         agent_mean_ade, agent_mean_fde, agent_mean_mr = metrics
-        print("backward_start" + "!" * 50)
         adjacency.retain_grad()
-        loss.backward()
         pl.TrainResult(loss)
-        print(self.gat.W[0].weight.grad)
-        print(self.gat.W[0].weight)
-        print("grad: ", adjacency.grad)
-        print("backward_finish" + "!" * 50)
-        exit(True)
+
         # Log results from training step
         result = pl.TrainResult(loss)
         result.log('train/loss', loss, on_epoch=True, sync_dist=True)
@@ -138,10 +134,12 @@ class WIMP(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         # Compute predictions
         input_dict, target_dict = batch
-        print(input_dict)
-        exit(True)
         preds, waypoint_preds, all_dist_params, _, adjacency = self(**input_dict)
 
+        
+        
+#         ifc_helpers['social_oracle_centerline_lengths']
+        
         # Compute loss and metrics
         loss, metrics = self.eval_preds(preds, target_dict, waypoint_preds)
         agent_mean_ade, agent_mean_fde, agent_mean_mr = metrics
@@ -153,12 +151,57 @@ class WIMP(pl.LightningModule):
         result.log('val/fde', agent_mean_fde, on_epoch=True, sync_dist=True)
         result.log('val/mr', agent_mean_mr, on_epoch=True, sync_dist=True)
         return result
-
+    
     def test_step(self, batch, batch_idx):
         # Compute predictions
-        input_dict, label = batch
-        preds, waypoint_preds, all_dist_params, att_weights, adjacency = self(**input_dict)
+        result = pl.EvalResult()
+        input_dict, target_dict = batch
         
+        if self.hparams.is_valid:
+            
+            preds, waypoint_preds, all_dist_params, _, adjacency = self(**input_dict)
+            loss, (agent_mean_ade, agent_mean_fde, agent_mean_mr) = self.eval_preds(preds, target_dict, waypoint_preds)
+            
+            result.log('loss/test_all', loss)
+            result.log('ade/test_all', agent_mean_ade)
+            result.log('fde/test_all', agent_mean_fde)
+            result.log('mr/test_all', agent_mean_mr)
+            
+            for idx in range(len(input_dict["social_features"][0])):
+                preds, waypoint_preds, all_dist_params, att_weights, adjacency = self(
+                                                input_dict["agent_features"], 
+                                                self.slicing(input_dict["social_features"], idx),
+                                                None, 
+                                                self.slicing(input_dict["num_agent_mask"], idx),
+                                                ifc_helpers = {
+                                                    "social_oracle_centerline": self.slicing(input_dict["ifc_helpers"]['social_oracle_centerline'], idx), 
+                                                    "social_oracle_centerline_lengths": self.slicing(input_dict["ifc_helpers"]['social_oracle_centerline_lengths'], idx),
+                                                    "agent_oracle_centerline": input_dict["ifc_helpers"]["agent_oracle_centerline"],
+                                                    "agent_oracle_centerline_lengths": input_dict["ifc_helpers"]["agent_oracle_centerline_lengths"]
+                                                })
+                loss, (agent_mean_ade, agent_mean_fde, agent_mean_mr) = self.eval_preds(preds, target_dict, waypoint_preds)
+                result.log(f'loss/test_{str(idx).zfill(2)}', loss)
+                result.log(f'ade/test_{str(idx).zfill(2)}', agent_mean_ade)
+                result.log(f'fde/test_{str(idx).zfill(2)}', agent_mean_fde)
+                result.log(f'mr/test_{str(idx).zfill(2)}', agent_mean_mr)
+
+        return result
+#             for idx in range(input_dict['social_features'].shape[1]):
+#                 preds, waypoint_preds, all_dist_params, att_weights, adjacency = self(input_dict["agent_features"],
+#                                           torch.cat((input_dict["social_features"][:,:idx,:], input_dict["social_features"][:,idx+1:,:]), axis=1)[:,:,torch.arange(input_dict["social_features"][0].size(0))!=idx]  # social_features
+                                  
+                          
+                                                                                      
+# #                 input_dict["social_features"], input_dict["adjacency"], input_dict["num_agent_mask"], 
+# #                 ifc_helpers=input_dict["ifc_helpers"]):
+        
+                
+#             print(input_dict.keys())
+#             print(input_dict['social_features'].shape)
+# #                                           torch.cat((input_dict["adjacency"][:,:idx,:], input_dict["adjacency"][:,idx+1:,:]), axis=1)[:,:,torch.arange(input_dict["adjacency"][0].size(0))!=idx]  # social_features                                
+            
+
+
         if self.hparams.save_json:
             for i, p in enumerate(preds):
                 write_dict = {}
@@ -168,14 +211,33 @@ class WIMP(pl.LightningModule):
                 write_dict['translation'] = input_dict['ifc_helpers']['translation'][i].tolist()
                 write_dict['csv_file'] = input_dict['ifc_helpers']['csv_file'][i]
                 write_dict['city'] = str(input_dict['ifc_helpers']['city'][i])
-                write_dict['agent_labels'] = label['agent_labels'][i].tolist()
+                write_dict['agent_labels'] = target_dict['agent_labels'][i].tolist()
                 write_dict['agent_features'] = input_dict['agent_features'][i].tolist()
                 write_dict['social_features'] = input_dict['social_features'][i].tolist()
                 write_dict['social_label_features'] = input_dict['social_label_features'][i].tolist()
                 write_dict['att_weights'] = att_weights[i].tolist()
                 with open(self.hparams.save_dir + "/" + str(input_dict['ifc_helpers']['idx'][i]) + '.json', 'w') as json_file:
-                    json.dump(write_dict, json_file, indent=4)   
+                    json.dump(write_dict, json_file, indent=4)
+                                                                                      
+        return result
 
+
+    def test_epoch_end(self, outputs):
+        if self.hparams.is_valid:
+            result = pl.EvalResult()
+            result_dict = {}
+            for k in outputs.keys():
+                if 'test' in k:
+                    result.log(k, torch.mean(outputs[k]).item())
+                    result_dict[k] = torch.mean(outputs[k]).item()
+            import json
+            with open("result.json", "w") as json_file:
+                json.dump(result_dict, json_file, indent=4)
+                
+            return result
+        else:
+            return pl.EvalResult()
+        
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.weight_decay)
         scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=self.hparams.scheduler_step_size,
@@ -251,6 +313,7 @@ class WIMP(pl.LightningModule):
                             target_dict['agent_labels'])
 
         return total_loss, (agent_mean_ade, agent_mean_fde, agent_mean_mr)
+# -
 
-    def backward(self, trainer, loss, optimizer, optimizer_idx):
-        pass
+
+
