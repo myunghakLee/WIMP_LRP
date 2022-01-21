@@ -59,8 +59,8 @@ def draw_attention(agent_features, social_features, preds, city_name, rotation, 
     preds = [[preds[i] - preds[i][:1] for i in range(len(preds))]]    # calculate x's mean and y's mean in predict
     
     agent_features = denormalization(agent_features, angle_ans, -translation[0], -translation[1])
-    plt.plot(agent_features[...,0],agent_features[...,1], color='blue')
-    plt.scatter(agent_features[...,0][-1],agent_features[...,1][-1], color='blue',linewidth=8)
+    plt.plot(agent_features[...,0],agent_features[...,1], color='orange',linewidth=3)
+    plt.scatter(agent_features[...,0][-1],agent_features[...,1][-1], color='orange',linewidth=8)
 #     plt.scatter(agent_features[...,0][19],agent_features[...,1][19], color='blue')
     plt.text(agent_features[...,0][-1],agent_features[...,1][-1], np.round(weight_original[0][0], 3))
 
@@ -68,8 +68,8 @@ def draw_attention(agent_features, social_features, preds, city_name, rotation, 
         for p in preds[0]:
             p = denormalization(p, angle_ans, -translation[0], -translation[1])
             p += agent_features[-1] - agent_features[0]
-            plt.plot(p[...,0], p[...,1], linestyle='dashed', alpha = 0.5, zorder = -1)
-            plt.scatter(p[...,0][-1], p[...,1][-1], linewidth=2, alpha = 0.5, zorder = -1)
+            plt.plot(p[...,0], p[...,1], linestyle='dashed', alpha = 0.2, zorder = -1)
+            plt.scatter(p[...,0][-1], p[...,1][-1], linewidth=2, alpha = 0.2, zorder = -1)
             xmin, xmax = min(np.append(xmin, p[...,0])), max(np.append(xmax, p[...,0]))
             ymin, ymax = min(np.append(ymin, p[...,1])), max(np.append(ymax, p[...,1]))
     
@@ -120,8 +120,8 @@ def draw(agent_features, social_features, preds, city_name, rotation, translatio
     preds = [[preds[i] - preds[i][:1] for i in range(len(preds))]]    # calculate x's mean and y's mean in predict
     
     agent_features = denormalization(agent_features, angle_ans, -translation[0], -translation[1])
-    plt.plot(agent_features[...,0],agent_features[...,1], color='blue')
-    plt.scatter(agent_features[...,0][-1],agent_features[...,1][-1], color='blue',linewidth=8)
+    plt.plot(agent_features[...,0],agent_features[...,1], color='orange',linewidth=3)
+    plt.scatter(agent_features[...,0][-1],agent_features[...,1][-1], color='orange',linewidth=8)
 #     plt.scatter(agent_features[...,0][19],agent_features[...,1][19], color='green')
     plt.text(agent_features[...,0][-1],agent_features[...,1][-1], np.round(weight_original[0], 3))
 
@@ -129,8 +129,8 @@ def draw(agent_features, social_features, preds, city_name, rotation, translatio
         for p in preds[0]:
             p = denormalization(p, angle_ans, -translation[0], -translation[1])
             p += agent_features[-1] - agent_features[0]
-            plt.plot(p[...,0], p[...,1], linestyle='dashed', alpha = 0.5, zorder = -1)
-            plt.scatter(p[...,0][-1], p[...,1][-1], linewidth=2, alpha = 0.5, zorder = -1)
+            plt.plot(p[...,0], p[...,1], linestyle='dashed', alpha = 0.2, zorder = -1)
+            plt.scatter(p[...,0][-1], p[...,1][-1], linewidth=2, alpha = 0.2, zorder = -1)
             xmin, xmax = min(np.append(xmin, p[...,0])), max(np.append(xmax, p[...,0]))
             ymin, ymax = min(np.append(ymin, p[...,1])), max(np.append(ymax, p[...,1]))
     
@@ -144,7 +144,7 @@ def draw(agent_features, social_features, preds, city_name, rotation, translatio
             if weight[i+1] > 0:
                 plt.scatter(AV[...,0][-1],AV[...,1][-1], color='red', linewidth = 8, alpha = weight[i+1])
             else:
-                plt.scatter(AV[...,0][-1],AV[...,1][-1], color='green', linewidth = 8, alpha = -weight[i+1])
+                plt.scatter(AV[...,0][-1],AV[...,1][-1], color='blue', linewidth = 8, alpha = -weight[i+1])
             plt.text(AV[...,0][-1],AV[...,1][-1], np.round(weight_original[i+1], 3))
             xmin = min(np.append(np.append(agent_features[...,0], AV[...,0]),xmin))
             xmax = max(np.append(np.append(agent_features[...,0], AV[...,0]),xmax))

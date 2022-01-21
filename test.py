@@ -79,6 +79,7 @@ def add_experimental_args(parent_parser):
     # Test Parmas
     parser.add_argument('--save_dir', type=str, required=True)
     parser.add_argument('--save_json', action='store_true')
+    parser.add_argument('--is_valid', action='store_true')
         
     return parser
 
@@ -105,10 +106,12 @@ def cli_main(args):
                          logger=logger, callbacks=[early_stop_cb])
     os.makedirs(args.save_dir, exist_ok=True)
 
-    print("============================================================================================START============================================================================================")
     trainer.fit(model, dm)
-    trainer.test(ckpt_path=args.ckpt_path, test_dataloaders = dm.test_dataloader())
-    print("============================================================================================END============================================================================================")
+    if args.is_valid:
+        trainer.test(ckpt_path=args.ckpt_path, test_dataloaders = dm.val_dataloader())
+    else:
+        trainer.test(ckpt_path=args.ckpt_path, test_dataloaders = dm.test_dataloader())
+
 
 
 
