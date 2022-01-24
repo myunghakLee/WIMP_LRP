@@ -4,7 +4,7 @@ import torch.nn as nn
 
 class GraphAttentionLayer(nn.Module):
     def __init__(self, input_dim, output_dim, num_gat_iters=1, num_heads=4, dropout=0.5,
-                 alpha=0.2):
+                 alpha=0.2, XAI_lambda=0.2):
         super(GraphAttentionLayer, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
@@ -17,11 +17,17 @@ class GraphAttentionLayer(nn.Module):
         self.a_1 = nn.ModuleList([nn.Linear(output_dim, 1) for _ in range(self.num_heads)])
         self.a_2 = nn.ModuleList([nn.Linear(output_dim, 1) for _ in range(self.num_heads)])
 
+        self.Wp = nn.ModuleList([nn.Linear(self.input_dim, self.output_dim) for _ in range(self.num_heads)]).cuda() # NOQA
+        self.a_1p = nn.ModuleList([nn.Linear(self.output_dim, 1) for _ in range(self.num_heads)]).cuda()
+        self.a_2p = nn.ModuleList([nn.Linear(self.output_dim, 1) for _ in range(self.num_heads)]).cuda()
+
         # Define other components
         self.leakyrelu = nn.LeakyReLU(self.alpha)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, h, adjacency, XAI_lambda=0.2):
+        self.XAI_lambda = XAI_lambda
+
+    def forward(self, h, adjacency):
         att_weights = []
         cur_h = h
 
@@ -29,9 +35,11 @@ class GraphAttentionLayer(nn.Module):
         # Wp = self.W + XAI_lambda * self.W
         # a_1p = self.a_1 + XAI_lambda * self.W2
         # a_2p  = self.a_2 + XAI_lambda * self.V
-        Wp = nn.ModuleList([nn.Linear(self.input_dim, self.output_dim) for _ in range(self.num_heads)]).cuda() # NOQA
-        a_1p = nn.ModuleList([nn.Linear(self.output_dim, 1) for _ in range(self.num_heads)]).cuda()
-        a_2p = nn.ModuleList([nn.Linear(self.output_dim, 1) for _ in range(self.num_heads)]).cuda()
+        # Wp = nn.ModuleList([nn.Linear(self.input_dim, self.output_dim) for _ in range(self.num_heads)]).cuda() # NOQA
+        # a_1p = nn.ModuleList([nn.Linear(self.output_dim, 1) for _ in range(self.num_heads)]).cuda()
+        # a_2p = nn.ModuleList([nn.Linear(self.output_dim, 1) for _ in range(self.num_heads)]).cuda()
+
+
         # nn.Parameter(b.weight + b.weight*0.5)
         # print(self.num_heads)
         # print(len(self.W))
@@ -40,9 +48,9 @@ class GraphAttentionLayer(nn.Module):
         # print(len(a_1p))
         
         for i in range(self.num_heads):
-            Wp[i].weight = nn.Parameter(self.W[i].weight + XAI_lambda * self.W[i].weight)
-            a_1p[i].weight = nn.Parameter(self.a_1[i].weight + XAI_lambda * self.a_1[i].weight)
-            a_2p[i].weight = nn.Parameter(self.a_2[i].weight + XAI_lambda * self.a_2[i].weight)
+            self.Wp[i].weight = nn.Parameter(self.W[i].weight + self.XAI_lambda * self.W[i].weight)
+            self.a_1p[i].weight = nn.Parameter(self.a_1[i].weight + self.XAI_lambda * self.a_1[i].weight)
+            self.a_2p[i].weight = nn.Parameter(self.a_2[i].weight + self.XAI_lambda * self.a_2[i].weight)
 
         for iter in range(self.num_gat_iters):
             head_embeds = []
@@ -50,12 +58,13 @@ class GraphAttentionLayer(nn.Module):
             for head in range(self.num_heads):
                 # Compute attention coefficients
                 cur_h_transformed = self.W[head](cur_h)
-                cur_h_transformedp = Wp[head](cur_h)
+                cur_h_transformedp = self.Wp[head](cur_h)
+
                 att_half_1 = self.a_1[head](cur_h_transformed).squeeze(-1)
-                att_half_1p = a_1p[head](cur_h_transformedp).squeeze(-1)
+                att_half_1p = self.a_1p[head](cur_h_transformedp).squeeze(-1)
 
                 att_half_2 = self.a_2[head](cur_h_transformed).squeeze(-1)
-                att_half_2p = a_2p[head](cur_h_transformedp).squeeze(-1)
+                att_half_2p = self.a_2p[head](cur_h_transformedp).squeeze(-1)
 
                 att_coeff = att_half_1.unsqueeze(-2) + att_half_2.unsqueeze(-3)
                 att_coeffp = att_half_1p.unsqueeze(-2) + att_half_2p.unsqueeze(-3)

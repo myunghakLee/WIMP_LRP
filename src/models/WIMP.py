@@ -69,7 +69,7 @@ class WIMP(pl.LightningModule):
         self.encoder = WIMPEncoder(self.hparams)
         self.gat = GraphAttentionLayer(self.hparams.hidden_dim, self.hparams.hidden_dim,
                                        self.hparams.graph_iter, self.hparams.attention_heads,
-                                       self.hparams.dropout)
+                                       self.hparams.dropout, XAI_lambda = self.hparams.XAI_lambda)
         self.decoder = WIMPDecoder(self.hparams)
         self.slicing = lambda a, idx: torch.cat((a[:, :idx], a[:, idx+1:]), axis=1)
 

@@ -1,0 +1,10 @@
+results_WIMP_attentinon/*
+ResultsJson/*
+data/*
+experiments/*
+*.onnx/*
+ResultsImg/*
+__pycache__
+results_XAI
+*.pyc
+*.pyo
