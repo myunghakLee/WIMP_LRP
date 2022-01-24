@@ -15,6 +15,9 @@ from src.util.metrics import compute_metrics
 from src.util.loss import l1_ewta_loss, l1_ewta_loss_prob, l1_ewta_waypoint_loss,\
     l1_ewta_encoder_waypoint_loss
 
+import XAI_utils
+import json
+
 
 # +
 class WIMP(pl.LightningModule):
@@ -77,6 +80,9 @@ class WIMP(pl.LightningModule):
         # Encode agent and social features
         encoding, hidden, waypoint_predictions = self.encoder(agent_features, social_features,
                                                               num_agent_mask, ifc_helpers)
+
+        # print("waypoint_predictions : ", waypoint_predictions.shape)
+        # print("social_features : ", social_features.shape)
         waypoint_predictions_tensor_encoder = waypoint_predictions.squeeze(-2).view(
             agent_features.size(0), social_features.size(1) + 1, -1, agent_features.size(2))
 
@@ -136,10 +142,6 @@ class WIMP(pl.LightningModule):
         input_dict, target_dict = batch
         preds, waypoint_preds, all_dist_params, _, adjacency = self(**input_dict)
 
-        
-        
-#         ifc_helpers['social_oracle_centerline_lengths']
-        
         # Compute loss and metrics
         loss, metrics = self.eval_preds(preds, target_dict, waypoint_preds)
         agent_mean_ade, agent_mean_fde, agent_mean_mr = metrics
@@ -158,48 +160,44 @@ class WIMP(pl.LightningModule):
         input_dict, target_dict = batch
         
         if self.hparams.is_valid:
-            
-            preds, waypoint_preds, all_dist_params, _, adjacency = self(**input_dict)
+            preds, waypoint_preds, all_dist_params, attention, adjacency = self(**input_dict)
             loss, (agent_mean_ade, agent_mean_fde, agent_mean_mr) = self.eval_preds(preds, target_dict, waypoint_preds)
             
             result.log('loss/test_all', loss)
             result.log('ade/test_all', agent_mean_ade)
             result.log('fde/test_all', agent_mean_fde)
             result.log('mr/test_all', agent_mean_mr)
-            
-            for idx in range(len(input_dict["social_features"][0])):
-                preds, waypoint_preds, all_dist_params, att_weights, adjacency = self(
-                                                input_dict["agent_features"], 
+
+#             if self.hparams.calc_XAI:
+#                 adjacency.retain_grad()
+#                 loss.backward()
+#                 for idx in range(self.hparams.batch_size):
+#                     # target = target_dict['agent_labels'][idx].cpu().numpy()
+#                     weight = adjacency.grad[idx][0].cpu().numpy()
+#                     print(weight)
+#                     exit(True)
+
+
+            if False:            
+                for idx in range(len(input_dict["social_features"][0])):
+                    preds, waypoint_preds, all_dist_params, att_weights, adjacency = self(input_dict["agent_features"],
                                                 self.slicing(input_dict["social_features"], idx),
-                                                None, 
+                                                None,
                                                 self.slicing(input_dict["num_agent_mask"], idx),
-                                                ifc_helpers = {
+                                                ifc_helpers ={
                                                     "social_oracle_centerline": self.slicing(input_dict["ifc_helpers"]['social_oracle_centerline'], idx), 
                                                     "social_oracle_centerline_lengths": self.slicing(input_dict["ifc_helpers"]['social_oracle_centerline_lengths'], idx),
                                                     "agent_oracle_centerline": input_dict["ifc_helpers"]["agent_oracle_centerline"],
                                                     "agent_oracle_centerline_lengths": input_dict["ifc_helpers"]["agent_oracle_centerline_lengths"]
                                                 })
-                loss, (agent_mean_ade, agent_mean_fde, agent_mean_mr) = self.eval_preds(preds, target_dict, waypoint_preds)
-                result.log(f'loss/test_{str(idx).zfill(2)}', loss)
-                result.log(f'ade/test_{str(idx).zfill(2)}', agent_mean_ade)
-                result.log(f'fde/test_{str(idx).zfill(2)}', agent_mean_fde)
-                result.log(f'mr/test_{str(idx).zfill(2)}', agent_mean_mr)
+                    loss, (agent_mean_ade, agent_mean_fde, agent_mean_mr) = self.eval_preds(preds, target_dict, waypoint_preds)
+                    result.log(f'loss/test_{str(idx).zfill(2)}', loss)
+                    result.log(f'ade/test_{str(idx).zfill(2)}', agent_mean_ade)
+                    result.log(f'fde/test_{str(idx).zfill(2)}', agent_mean_fde)
+                    result.log(f'mr/test_{str(idx).zfill(2)}', agent_mean_mr)
 
         return result
-#             for idx in range(input_dict['social_features'].shape[1]):
-#                 preds, waypoint_preds, all_dist_params, att_weights, adjacency = self(input_dict["agent_features"],
-#                                           torch.cat((input_dict["social_features"][:,:idx,:], input_dict["social_features"][:,idx+1:,:]), axis=1)[:,:,torch.arange(input_dict["social_features"][0].size(0))!=idx]  # social_features
-                                  
-                          
-                                                                                      
-# #                 input_dict["social_features"], input_dict["adjacency"], input_dict["num_agent_mask"], 
-# #                 ifc_helpers=input_dict["ifc_helpers"]):
-        
-                
-#             print(input_dict.keys())
-#             print(input_dict['social_features'].shape)
-# #                                           torch.cat((input_dict["adjacency"][:,:idx,:], input_dict["adjacency"][:,idx+1:,:]), axis=1)[:,:,torch.arange(input_dict["adjacency"][0].size(0))!=idx]  # social_features                                
-            
+      
 
 
         if self.hparams.save_json:
@@ -230,9 +228,9 @@ class WIMP(pl.LightningModule):
                 if 'test' in k:
                     result.log(k, torch.mean(outputs[k]).item())
                     result_dict[k] = torch.mean(outputs[k]).item()
-            import json
-            with open("result.json", "w") as json_file:
-                json.dump(result_dict, json_file, indent=4)
+#             print("save_json!!!!!!!!!!!!")
+#             with open("result.json", "w") as json_file:
+#                 json.dump(result_dict, json_file, indent=4)
                 
             return result
         else:

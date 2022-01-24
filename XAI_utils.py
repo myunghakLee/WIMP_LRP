@@ -96,9 +96,9 @@ def draw_attention(agent_features, social_features, preds, city_name, rotation, 
     if save_fig:
         assert save_name, "For save figure save_name is required "
         plt.savefig(save_name)
+        plt.close()                
     else:
         plt.show()
-    plt.close()
 
 
 # +
@@ -158,6 +158,7 @@ def draw(agent_features, social_features, preds, city_name, rotation, translatio
     if save_fig:
         assert save_name, "For save figure save_name is required "
         plt.savefig(save_name)
+        plt.close()                
     else:
         plt.show()
-    plt.close()        
+

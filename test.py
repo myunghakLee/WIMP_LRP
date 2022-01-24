@@ -108,11 +108,13 @@ def cli_main(args):
 
     trainer.fit(model, dm)
     if args.is_valid:
-        trainer.test(ckpt_path=args.ckpt_path, test_dataloaders = dm.val_dataloader())
+        result = trainer.test(ckpt_path=args.ckpt_path, test_dataloaders = dm.val_dataloader())
     else:
-        trainer.test(ckpt_path=args.ckpt_path, test_dataloaders = dm.test_dataloader())
-
-
+        result = trainer.test(ckpt_path=args.ckpt_path, test_dataloaders = dm.test_dataloader())
+    if result:
+        with open("result.json", "w") as json_data:
+            json.dump(result, json_data)
+    
 
 
 if __name__ == '__main__':

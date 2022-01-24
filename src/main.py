@@ -75,6 +75,9 @@ def add_experimental_args(parent_parser):
     # Logging Params
     parser.add_argument('--experiment-name', type=str, help='Save file prefix')
 
+    # XAI parameter
+    parser.add_argument('--calc_XAI', type=str, help='Save file prefix')
+
     return parser
 
 
