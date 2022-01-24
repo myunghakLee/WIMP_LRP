@@ -2,15 +2,22 @@
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 import numpy as np
-import torch
 import copy
+import json
+
+
+from torch.utils.data import DataLoader, Dataset
+import torch.nn.functional as F
+import torch.nn as nn
+import torch
+
 
 from src.data.argoverse_datamodule import ArgoverseDataModule
 from src.data.argoverse_dataset import ArgoverseDataset
 from src.data.dummy_datamodule import DummyDataModule
 from src.models.WIMP import WIMP
 
-from torch.utils.data import DataLoader, Dataset
+
 
 # +
 import XAI_utils
@@ -20,7 +27,7 @@ import random
 
 # -
 
-args = {"IFC":True, "add_centerline":False, "attention_heads":4, "batch_norm":False, "batch_size":1, "check_val_every_n_epoch":3, 
+args = {"IFC":True, "add_centerline":False, "attention_heads":4, "batch_norm":False, "batch_size":10, "check_val_every_n_epoch":3, 
           "dataroot":'./data/argoverse_processed_simple', "dataset":'argoverse', "distributed_backend":'ddp', "dropout":0.0, 
           "early_stop_threshold":5, "experiment_name":'example', "gpus":3, "gradient_clipping":True, "graph_iter":1, 
           "hidden_dim":512, "hidden_key_generator":True, "hidden_transform":False, "input_dim":2, "k_value_threshold":10, 
@@ -62,13 +69,20 @@ trest_dataset = DataLoader(test_loader, batch_size=args['batch_size'], num_worke
                                 shuffle=False, drop_last=False)
 # dm = ArgoverseDataset(args)
 
-
+# +
+# model = WIMP(args)
+# model.load_state_dict(torch.load("experiments/example/checkpoints/epoch=122.ckpt")['state_dict'])
+# model =nn.parallel.DataParallel(model)
+# model = model.cuda()
 
 # +
 model = WIMP(args)
 model.load_state_dict(torch.load("experiments/example/checkpoints/epoch=122.ckpt")['state_dict'])
+# model =nn.parallel.DataParallel(model)
 model = model.cuda()
 
+# conv_weight_origin = copy.deepcopy(model.module.decoder.xy_conv_filters[0].weight)
+# last_weight_origin = copy.deepcopy(model.module.decoder.value_generator.weight)
 conv_weight_origin = copy.deepcopy(model.decoder.xy_conv_filters[0].weight)
 last_weight_origin = copy.deepcopy(model.decoder.value_generator.weight)
 
@@ -86,7 +100,6 @@ def get_metric(metric_dict, ade,fde,mr,loss):
 import os
 import math
 import copy
-import torch.nn as nn
 Relu = nn.ReLU()
 
 save_foler = "ResultsImg/"
@@ -95,7 +108,14 @@ save_foler = "ResultsImg/"
 save_XAI = save_foler + "/XAI/"
 save_attention = save_foler + "/attention"
 
-slicing = lambda a, idx: torch.cat((a[:, :idx], a[:, idx+1:]), axis=1)
+pad2D = nn.ZeroPad2d((0,1,0,1))
+# pad1D = F.pad(aa, (0,1))
+
+slicing = lambda a, idx: torch.cat((a[:idx], a[idx+1:]), axis=1)
+slicing_2Dpadding = lambda a, idx: torch.cat((a[:idx], a[idx+1:], torch.zeros_like(a[0:1])), axis=0)
+slicing_1Dpadding = lambda a, idx: F.pad(torch.cat((a[:idx], a[idx+1:]), axis=0), (0,1))
+
+
 # -
 
 import os
@@ -170,32 +190,19 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
         input_dict["adjacency"] = input_dict["adjacency"].cuda()
         input_dict["label_adjacency"] = input_dict["label_adjacency"].cuda()
         input_dict["num_agent_mask"] = input_dict["num_agent_mask"].cuda()
-        input_dict["ifc_helpers"]["agent_oracle_centerline"] = input_dict[
-            "ifc_helpers"
-        ]["agent_oracle_centerline"].cuda()
-        input_dict["ifc_helpers"]["agent_oracle_centerline_lengths"] = input_dict[
-            "ifc_helpers"
-        ]["agent_oracle_centerline_lengths"].cuda()
-        input_dict["ifc_helpers"]["social_oracle_centerline"] = input_dict[
-            "ifc_helpers"
-        ]["social_oracle_centerline"].cuda()
-        input_dict["ifc_helpers"]["social_oracle_centerline_lengths"] = input_dict[
-            "ifc_helpers"
-        ]["social_oracle_centerline_lengths"].cuda()
-        input_dict["ifc_helpers"]["agent_oracle_centerline"] = input_dict[
-            "ifc_helpers"
-        ]["agent_oracle_centerline"].cuda()
+        input_dict["ifc_helpers"]["agent_oracle_centerline"] = input_dict["ifc_helpers"]["agent_oracle_centerline"].cuda()
+        input_dict["ifc_helpers"]["agent_oracle_centerline_lengths"] = input_dict["ifc_helpers"]["agent_oracle_centerline_lengths"].cuda()
+        input_dict["ifc_helpers"]["social_oracle_centerline"] = input_dict["ifc_helpers"]["social_oracle_centerline"].cuda()
+        input_dict["ifc_helpers"]["social_oracle_centerline_lengths"] = input_dict["ifc_helpers"]["social_oracle_centerline_lengths"].cuda()
+        input_dict["ifc_helpers"]["agent_oracle_centerline"] = input_dict["ifc_helpers"]["agent_oracle_centerline"].cuda()
         target_dict["agent_labels"] = target_dict["agent_labels"].cuda()
         #         if batch_idx == 0:
         #             print(input_dict['social_features'][0,:,:2,:2])
 
-        input_dict["adjacency"].requires_grad = True
-        input_dict["adjacency"].retain_grad()
 
-        preds, waypoint_preds, all_dist_params, attention, adjacency = model(
-            **input_dict
-        )
+        preds, waypoint_preds, all_dist_params, attention, adjacency = model(**input_dict)
         adjacency.retain_grad()
+
         loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
         get_metric(original_model_metric, ade, fde, mr, loss)
 
@@ -205,19 +212,12 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
         conv_weight = model.decoder.xy_conv_filters[0].weight
         last_weight = model.decoder.value_generator.weight
 
-        assert torch.all(conv_weight == conv_weight_origin) and torch.all(
-            last_weight == last_weight_origin
-        ), (
-            "Model is Changed",
-            conv_weight,
-            conv_weight_origin,
-            last_weight,
-            last_weight_origin,
-        )
+#      sanity check
+#         assert torch.all(conv_weight == conv_weight_origin) and torch.all(last_weight == last_weight_origin), 
+#             ("Model is Changed",conv_weight,conv_weight_origin,last_weight,last_weight_origin,)
 
-        for idx in range(args["batch_size"]):
-
-            if args["draw_image"]:
+        if args["draw_image"]:
+            for idx in range(args["batch_size"]):
                 weight = adjacency.grad[idx][0].cpu().numpy()
                 att = attention[idx].cpu().numpy()
                 agent_features = input_dict["agent_features"][idx].cpu().numpy()
@@ -227,98 +227,40 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
                 city_name = input_dict["ifc_helpers"]["city"][idx]
                 rotation = input_dict["ifc_helpers"]["rotation"][idx].numpy()
                 translation = input_dict["ifc_helpers"]["translation"][idx].numpy()
-                XAI_utils.draw_attention(
-                    agent_features,
-                    social_features,
-                    preds,
-                    city_name,
-                    rotation,
-                    translation,
-                    weight=copy.deepcopy(att),
-                    draw_future=True,
-                    save_fig=True,
-                    save_name=save_attention
-                    + "/"
-                    + str(batch_idx)
-                    + "_"
-                    + str(idx)
-                    + ".png",
-                )
+                XAI_utils.draw_attention(agent_features,social_features,preds,city_name,rotation,translation,weight=copy.deepcopy(att),draw_future=True,
+                    save_fig=True,save_name=save_attention+ "/"+ str(batch_idx)+ "_"+ str(idx)+ ".png",)
 
-                XAI_utils.draw(
-                    agent_features,
-                    social_features,
-                    preds,
-                    city_name,
-                    rotation,
-                    translation,
-                    weight=copy.deepcopy(weight),
-                    draw_future=True,
-                    save_fig=True,
-                    save_name=save_XAI + "/" + str(batch_idx) + "_" + str(idx) + ".png",
-                )
+                XAI_utils.draw(agent_features,social_features, preds, city_name, rotation, translation, weight=copy.deepcopy(weight), draw_future=True,
+                    save_fig=True, save_name=save_XAI + "/" + str(batch_idx) + "_" + str(idx) + ".png")
 
-            if args["remove_high_related_score"]:
+        if args["remove_high_related_score"]:
+            for idx in range(args["batch_size"]):
                 weight = adjacency.grad[idx][0]
                 for i in range(args["maximum_delete_num"]):
-                    #                 print(batch_idx, input_dict["social_features"].shape)
                     if len(input_dict["social_features"][0] > 1):
                         arg = function(weight)
-                        #                     arg_max = torch.argmin(weight[1:]).item()
 
                         weight = torch.cat((weight[: arg + 1], weight[arg + 2 :]))
-                        input_dict["social_features"] = slicing(
-                            input_dict["social_features"], arg
-                        )
-                        input_dict["num_agent_mask"] = slicing(
-                            input_dict["num_agent_mask"], arg + 1
-                        )
-                        input_dict["ifc_helpers"]["social_oracle_centerline"] = slicing(
-                            input_dict["ifc_helpers"]["social_oracle_centerline"], arg
-                        )
-                        input_dict["ifc_helpers"][
-                            "social_oracle_centerline_lengths"
-                        ] = slicing(
-                            input_dict["ifc_helpers"][
-                                "social_oracle_centerline_lengths"
-                            ],
-                            arg,
-                        )
+                        input_dict["social_features"][idx] = slicing_2Dpadding(input_dict["social_features"][idx], arg)
+                        input_dict["num_agent_mask"][idx] = slicing_1Dpadding(input_dict["num_agent_mask"][idx], arg + 1)
+                        input_dict["ifc_helpers"]["social_oracle_centerline"][idx] = slicing_2Dpadding(input_dict["ifc_helpers"]["social_oracle_centerline"][idx], arg)
+                        input_dict["ifc_helpers"]["social_oracle_centerline_lengths"][idx] = slicing_2Dpadding(input_dict["ifc_helpers"]["social_oracle_centerline_lengths"][idx],arg,)
+
                     else:
                         break
 
-                    with torch.no_grad():
-                        (
-                            preds,
-                            waypoint_preds,
-                            all_dist_params,
-                            att_weights,
-                            adjacency,
-                        ) = model(
-                            input_dict["agent_features"],
-                            input_dict["social_features"],
-                            None,
-                            input_dict["num_agent_mask"],
-                            ifc_helpers={
-                                "social_oracle_centerline": input_dict["ifc_helpers"][
-                                    "social_oracle_centerline"
-                                ],
-                                "social_oracle_centerline_lengths": input_dict[
-                                    "ifc_helpers"
-                                ]["social_oracle_centerline_lengths"],
-                                "agent_oracle_centerline": input_dict["ifc_helpers"][
-                                    "agent_oracle_centerline"
-                                ],
-                                "agent_oracle_centerline_lengths": input_dict[
-                                    "ifc_helpers"
-                                ]["agent_oracle_centerline_lengths"],
-                            },
-                        )
-                        loss, (ade, fde, mr) = model.eval_preds(
-                            preds, target_dict, waypoint_preds
-                        )
-                        get_metric(DA_model_metric[i], ade, fde, mr, loss)
-    import json
+                with torch.no_grad():
+                    preds,waypoint_preds,all_dist_params,att_weights,_ = model(input_dict["agent_features"],
+                        input_dict["social_features"],None,input_dict["num_agent_mask"],
+                        ifc_helpers={"social_oracle_centerline": input_dict["ifc_helpers"]["social_oracle_centerline"],
+                                        "social_oracle_centerline_lengths": input_dict["ifc_helpers"]["social_oracle_centerline_lengths"],
+                                        "agent_oracle_centerline": input_dict["ifc_helpers"]["agent_oracle_centerline"],
+                                        "agent_oracle_centerline_lengths": input_dict["ifc_helpers"]["agent_oracle_centerline_lengths"],
+                        })
+                    loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
+                    get_metric(DA_model_metric[i], ade, fde, mr, loss)
+
+        torch.cuda.empty_cache()
 
     def calc_mean(metric):
         metric["fde"] /= metric["length"]
