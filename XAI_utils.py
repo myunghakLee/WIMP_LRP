@@ -102,7 +102,8 @@ def draw_attention(agent_features, social_features, preds, city_name, rotation, 
 
 
 # +
-def draw(agent_features, social_features, preds, city_name, rotation, translation, weight = None, draw_future = True, figsize = (8,8), save_fig = False, save_name = None):
+def draw(agent_features, social_features, preds, city_name, rotation, translation, weight = None, 
+             draw_future = True, figsize = (8,8), save_fig = False, save_name = None, plot_name = None):
 
     plt.ion()
     plt.figure(figsize=figsize)
@@ -113,7 +114,8 @@ def draw(agent_features, social_features, preds, city_name, rotation, translatio
     max_weight = max(np.max(abs(weight)), 0.000001)
     weight /= max_weight
     
-    plt.title("Max Weight: %.3f" %max_weight)
+    if plot_name:
+        plt.title(plot_name)
     
     angle_ans = -rotation
     xmin, xmax, ymin,ymax = [9999], [-9999], [9999], [-9999]
@@ -129,8 +131,8 @@ def draw(agent_features, social_features, preds, city_name, rotation, translatio
         for p in preds[0]:
             p = denormalization(p, angle_ans, -translation[0], -translation[1])
             p += agent_features[-1] - agent_features[0]
-            plt.plot(p[...,0], p[...,1], linestyle='dashed', alpha = 0.2, zorder = -1)
-            plt.scatter(p[...,0][-1], p[...,1][-1], linewidth=2, alpha = 0.2, zorder = -1)
+            plt.plot(p[...,0], p[...,1], linestyle='dashed', alpha = 0.5, zorder = -1)
+            plt.scatter(p[...,0][-1], p[...,1][-1], linewidth=2, alpha = 0.5, zorder = -1)
             xmin, xmax = min(np.append(xmin, p[...,0])), max(np.append(xmax, p[...,0]))
             ymin, ymax = min(np.append(ymin, p[...,1])), max(np.append(ymax, p[...,1]))
     
@@ -160,5 +162,6 @@ def draw(agent_features, social_features, preds, city_name, rotation, translatio
         plt.savefig(save_name)
         plt.close()                
     else:
-        plt.show()
+        pass
+#         plt.show()
 
