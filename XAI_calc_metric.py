@@ -381,36 +381,23 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
                     for idx in range(len(input_dict["agent_features"])): # batch 안의 iteration별로
                         num_vehicles =  int(torch.sum(input_dict["num_agent_mask"][idx]))
                         weight = adjacency_grad[idx][0]
-#                         print("num_vehicles : ", num_vehicles)
-#                         print(weight)
-#                         print(input_dict["social_features"][idx][:,0,0])
-#                         print("OLD: ", torch.sum(input_dict["num_agent_mask"][idx]))
+                        
                         if num_vehicles > 1: # social agent가 1이상일때, 즉 첫번째 social agent의 data가 존재하는 경우
-#                             num_agents = int(num_vehicles) - 1
-#                             arg = torch.randint(0,num_agents,(1,)).item()
                             arg = function(weight[:num_vehicles], 0)
                             weight = torch.cat((weight[: arg + 1], weight[arg + 2 :]))
-#                             adjacency_grad[idx][0] = torch.cat((adjacency_grad[idx][0][: arg + 1], adjacency_grad[idx][0][arg + 2 :], torch.tensor([0.0]).cuda()))
 
                             input_dict["num_agent_mask"][idx] = slicing_1Dpadding(input_dict["num_agent_mask"][idx], arg + 1)
                             adjacency_grad[idx][0] = slicing_1Dpadding(adjacency_grad[idx][0], arg+1)
-        
                             input_dict["social_features"][idx] = slicing_2Dpadding(input_dict["social_features"][idx], arg)
                             input_dict["ifc_helpers"]["social_oracle_centerline"][idx] = slicing_2Dpadding(input_dict["ifc_helpers"]["social_oracle_centerline"][idx], arg)
                             input_dict["ifc_helpers"]["social_oracle_centerline_lengths"][idx] = slicing_2Dpadding(input_dict["ifc_helpers"]["social_oracle_centerline_lengths"][idx],arg,)
-                        else:
-                            break
-#                         print("NEW: ", torch.sum(input_dict["num_agent_mask"][idx]), arg)
-#                         print(weight)
-#                         print(input_dict["social_features"][idx][:,0,0])
-#                         print("=" * 100)
 
                     preds,waypoint_preds,all_dist_params,att_weights,_ = model(**input_dict)
                     loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
                     get_metric(DA_model_metric[i], ade, fde, mr, loss, len(adjacency_grad))
 
                     write_dict = copy.deepcopy([metric_to_dict(preds[j], waypoint_preds, input_dict, target_dict, attention,j, adjacency_grad[j][0]) for j in range(len(preds))])
-                    write_json_delete[name_idx][i] += copy.deepcopy(write_dict)
+                    write_json_delete[name_idx][i] += write_dict
                     
         torch.cuda.empty_cache()
 
@@ -426,6 +413,7 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
             "loss": metric["loss"],
             "mr": metric["mr"]
         }
+    
     if parser.save_json:
         for i in range(len(DA_model_metric)):
             DA_model_metric[i] = calc_mean(DA_model_metric[i])
@@ -550,7 +538,7 @@ for data, output_path in zip([write_json_original, write_json_delete[0], write_j
         from tqdm.notebook import tqdm
         from argoverse.evaluation.competition_util import generate_forecasting_h5
         ##########################======================================#############################
-#         data = write_json_delete[2]    
+#         data = write_json_delete[2]
 #         output_path =  "competition_files/delete_three/"
         ##########################======================================#############################
 
