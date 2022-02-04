@@ -77,6 +77,7 @@ def add_experimental_args(parent_parser):
 
     # XAI parameter
     parser.add_argument('--calc_XAI', type=str, help='Save file prefix')
+    parser.add_argument('--XAI_lambda', type=float, default=0.2)
 
     return parser
 

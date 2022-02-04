@@ -81,8 +81,6 @@ class WIMP(pl.LightningModule):
         encoding, hidden, waypoint_predictions = self.encoder(agent_features, social_features,
                                                               num_agent_mask, ifc_helpers)
 
-        # print("waypoint_predictions : ", waypoint_predictions.shape)
-        # print("social_features : ", social_features.shape)
         waypoint_predictions_tensor_encoder = waypoint_predictions.squeeze(-2).view(
             agent_features.size(0), social_features.size(1) + 1, -1, agent_features.size(2))
 
@@ -94,16 +92,20 @@ class WIMP(pl.LightningModule):
         else:
             gan_features = encoding.view(social_features.size(0), social_features.size(1) + 1,
                                          1, -1)
+            if gan_features.requires_grad:
+                gan_features.retain_grad()
+
         adjacency = torch.ones(gan_features.size(1), gan_features.size(1)).to(
             gan_features.get_device()).float().unsqueeze(0).repeat(gan_features.size(0), 1, 1)
-        adjacency.requires_grad = True
-        adjacency.retain_grad()
+        adjacency.requires_grad = True  # backpropagation시 gradient 쌓이게 하기 위해서 추가해줌 
+        adjacency.retain_grad()  # backpropagation시 gradient 쌓이게 하기 위해서 추가해줌
 
         adjacency = adjacency * num_agent_mask.unsqueeze(1) * num_agent_mask.unsqueeze(2)
 
-        graph_output, att_weights = self.gat(gan_features, adjacency)
+        graph_output, att_weights = self.gat(gan_features, adjacency)  # att_weights는 LRP하고는 연관이 없음, 모델에서 생각하고 있는 attention
         att_weights.requires_grad = True
         att_weights.retain_grad()
+
         graph_output = graph_output.narrow(1, 0, 1).squeeze(1)
         if self.hparams.batch_norm:
             graph_output = self.encoding_bn(graph_output.transpose(1, 2).contiguous())
@@ -112,7 +114,7 @@ class WIMP(pl.LightningModule):
             hidden_decoder = torch.chunk(graph_output.view(-1, self.hparams.num_layers*2, self.hparams.hidden_dim).transpose(0,1).contiguous(), 2, dim=0)
         else:
             hidden_decoder = (graph_output.view(-1, 1, self.hparams.hidden_dim).transpose(0,1).contiguous(), graph_output.view(-1, 1, self.hparams.hidden_dim).transpose(0,1).contiguous())
-            hidden_decoder = (hidden_decoder[0].repeat(self.hparams.num_layers,1,1), hidden_decoder[1].repeat(self.hparams.num_layers,1,1))
+            hidden_decoder = (hidden_decoder[0].repeat(self.hparams.num_layers, 1, 1), hidden_decoder[1].repeat(self.hparams.num_layers,1,1))
 
         # Decode prediction
         decoder_input_features = agent_features.narrow(dim=1, start=agent_features.size(1)-1, length=1)
@@ -121,7 +123,7 @@ class WIMP(pl.LightningModule):
             last_n_predictions.append(agent_features.narrow(dim=1, start=agent_features.size(1)-i, length=i))
         prediction_tensor, waypoints_prediction_tensor, prediction_stats = self.decoder(decoder_input_features, last_n_predictions, hidden_decoder, outsteps, ifc_helpers=ifc_helpers, sample_next=sample_next, map_estimate=map_estimate)
 
-        return prediction_tensor, [waypoints_prediction_tensor, waypoint_predictions_tensor_encoder], prediction_stats, att_weights, adjacency
+        return prediction_tensor, [waypoints_prediction_tensor, waypoint_predictions_tensor_encoder], prediction_stats, att_weights, adjacency, gan_features
 
     def training_step(self, batch, batch_idx):
         # Compute predictions

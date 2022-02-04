@@ -38,14 +38,6 @@ class GraphAttentionLayer(nn.Module):
         # Wp = nn.ModuleList([nn.Linear(self.input_dim, self.output_dim) for _ in range(self.num_heads)]).cuda() # NOQA
         # a_1p = nn.ModuleList([nn.Linear(self.output_dim, 1) for _ in range(self.num_heads)]).cuda()
         # a_2p = nn.ModuleList([nn.Linear(self.output_dim, 1) for _ in range(self.num_heads)]).cuda()
-
-
-        # nn.Parameter(b.weight + b.weight*0.5)
-        # print(self.num_heads)
-        # print(len(self.W))
-        # print(len(self.a_1))
-        # print(len(Wp))
-        # print(len(a_1p))
         
         for i in range(self.num_heads):
             self.Wp[i].weight = nn.Parameter(self.W[i].weight + self.XAI_lambda * self.W[i].weight)
@@ -58,7 +50,7 @@ class GraphAttentionLayer(nn.Module):
             for head in range(self.num_heads):
                 # Compute attention coefficients
                 cur_h_transformed = self.W[head](cur_h)
-                cur_h_transformedp = self.Wp[head](cur_h)
+                cur_h_transformedp = self.Wp[head](cur_h) 
 
                 att_half_1 = self.a_1[head](cur_h_transformed).squeeze(-1)
                 att_half_1p = self.a_1p[head](cur_h_transformedp).squeeze(-1)
@@ -105,14 +97,14 @@ class GraphAttentionLayer(nn.Module):
                 h_prime = torch.bmm(att_values.squeeze(-1),
                                     cur_h_transformed.squeeze(-2)).unsqueeze(-2)
                 h_primep = torch.bmm(att_valuesp.squeeze(-1),
-                                    cur_h_transformedp.squeeze(-2)).unsqueeze(-2)
+                                    cur_h_transformedp.squeeze(-2)).unsqueeze(-2) #  mh
 
-                h_prime = (h_primep * (h_prime / (h_primep + 1e-6)).data)
+                h_prime = (h_primep * (h_prime / (h_primep + 1e-6)).data)  #  mh
                 head_embeds.append(h_prime)
 
                 # Record attention weights on first GAT iteration
                 if iter == 0:
-                    att_values = (att_valuesp * (att_values / (att_valuesp + 1e-6)).data)
+                    att_values = (att_valuesp * (att_values / (att_valuesp + 1e-6)).data)   #  mh
                     att_weights.append(att_values.squeeze(-1).detach())
 
             # Compute updated embeding using residual

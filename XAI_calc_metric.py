@@ -35,12 +35,8 @@ import random
 
 def draw(agent_features, social_features, preds, city_name, rotation, translation, social_nums = None ,weight = None, gt = None,
              draw_future = True, figsize = (8,8), save_fig = False, save_name = None, plot_name = None, plt = None, xyrange = None):
-#     plt.ion()
-#     plt.figure(figsize=figsize)
-    weight_original = copy.deepcopy(weight)
     
 
-#     weight -= np.min(weight)
     max_weight = max(np.max(abs(weight)), 0.000001)
     weight /= max_weight
     
@@ -54,7 +50,6 @@ def draw(agent_features, social_features, preds, city_name, rotation, translatio
     agent_features = XAI_utils.denormalization(agent_features, angle_ans, -translation[0], -translation[1])
     plt.plot(agent_features[...,0],agent_features[...,1], color='orange',linewidth=3)
     plt.scatter(agent_features[...,0][-1],agent_features[...,1][-1], color='orange',linewidth=8)
-#     plt.scatter(agent_features[...,0][19],agent_features[...,1][19], color='green')
     plt.text(agent_features[...,0][-1],agent_features[...,1][-1], np.round(weight_original[0], 3))
 
     if draw_future:
@@ -69,7 +64,7 @@ def draw(agent_features, social_features, preds, city_name, rotation, translatio
 
     if np.sum(gt) > 0:
         p = XAI_utils.denormalization(gt, angle_ans, -translation[0], -translation[1])
-#         p += agent_features[-1] - agent_features[0]
+        # p += agent_features[-1] - agent_features[0]
         plt.plot(p[...,0], p[...,1], color = "deepskyblue")
         plt.scatter(p[...,0][-1], p[...,1][-1], color = "deepskyblue", s=80, marker=(5, 1))
         xmin, xmax = min(min(np.append(xmin, p[...,0])), xmin), max(max(np.append(xmax, p[...,0])), xmax)
@@ -77,9 +72,9 @@ def draw(agent_features, social_features, preds, city_name, rotation, translatio
     
     for i, AV in enumerate(social_features):
         AV = XAI_utils.denormalization(np.array(AV), angle_ans, -translation[0], -translation[1])
-#         if True:
+        # if True:
         if i < social_nums: # 간혹 AV의 trajectory가 0으로 초기화 되어 있는 경우가 있는데 이 경우 AGENT의 초기값과 같아져 발생하는 오류때문에 넣어줌
-#             AV += AV[-1] - AV[0]
+            #AV += AV[-1] - AV[0]
             plt.plot(AV[...,0],AV[...,1], color='black')
             plt.scatter(AV[...,0][-1],AV[...,1][-1], color='black')
             if weight[i+1] > 0:
@@ -98,7 +93,6 @@ def draw(agent_features, social_features, preds, city_name, rotation, translatio
         xyrange = [xmin-20, xmax+20, ymin-20, ymax]
         
     local_lane_polygons = am.find_local_lane_polygons(xyrange, city_name)
-#     print(xmin,xmax)
     for l in local_lane_polygons:
         plt.plot(l[...,0],l[...,1], linewidth='0.5', color='gray')
 
@@ -108,8 +102,8 @@ def draw(agent_features, social_features, preds, city_name, rotation, translatio
         plt.close()
     else:
         pass
-#         print("SSSSSSS")
-#         plt.show()
+        print("SSSSSSS")
+        plt.show()
     return xyrange
 
 # -
@@ -125,12 +119,9 @@ args = {"IFC":True, "add_centerline":False, "attention_heads":4, "batch_norm":Fa
           "segment_CL_Encoder_Gaussian":False, "segment_CL_Encoder_Gaussian_Prob":False, "segment_CL_Encoder_Prob":True, 
           "segment_CL_Gaussian_Prob":False, "segment_CL_Prob":False, "use_centerline_features":True, "use_oracle":False, "waypoint_step":5, 
           "weight_decay":0.0, "workers":8, "wta":False, "draw_image" : False, "remove_high_related_score" : True, "maximum_delete_num" : 3, 
-          "save_json": True, "make_submit_file" : False}
+          "save_json": True, "make_submit_file" : False, "use_hidden_feature" : True}
 
 
-
-
-# +
 from argparse import ArgumentParser
 parser = ArgumentParser()
 
@@ -144,11 +135,6 @@ try:  # terminal
     parser = parser.parse_args()
 except:  # Jupyter notebook
     parser = parser.parse_args(args=[])
-
-
-# -
-
-parser.XAI_lambda
 
 
 train_loader = ArgoverseDataset(parser.dataroot, mode='train', delta=parser.predict_delta,
@@ -177,9 +163,8 @@ val_dataset = DataLoader(val_loader, batch_size=parser.batch_size, num_workers=p
 test_dataset = DataLoader(test_loader, batch_size=parser.batch_size, num_workers=parser.workers,
                                 pin_memory=True, collate_fn=ArgoverseDataset.collate,
                                 shuffle=False, drop_last=False)
-# dm = ArgoverseDataset(args)
 
-# +
+
 model = WIMP(parser)
 model.load_state_dict(torch.load("experiments/example/checkpoints/epoch=122.ckpt")['state_dict'], strict=False) # 학습할 때에는 graph 모듈에서 p에 해당하는 network가 없었으므로
 # model =nn.parallel.DataParallel(model)
@@ -215,20 +200,13 @@ save_foler = "ResultsImg/"
 save_XAI = save_foler + "/XAI/"
 save_attention = save_foler + "/attention"
 
-# pad2D = nn.ZeroPad2d((0,1,0,1))
-# pad1D = F.pad(aa, (0,1))
-
 slicing = lambda a, idx: torch.cat((a[:idx], a[idx+1:]), axis=1)
 slicing_2Dpadding = lambda a, idx: torch.cat((a[:idx], a[idx+1:], torch.zeros_like(a[0:1])), axis=0)
 slicing_1Dpadding = lambda a, idx: F.pad(torch.cat((a[:idx], a[idx+1:]), axis=0), (0,1))
 
-# -
-
-
 a = torch.tensor([1,2,3,4,5])
 slicing_1Dpadding(a, 5)
 
-# +
 import time
 
 now = time.localtime()
@@ -239,10 +217,6 @@ save_folder = "results_XAI/" + start_time + "___" + str(parser.XAI_lambda).repla
 
 os.mkdir(save_folder)
 os.mkdir("ResultsImg/" + start_time)
-
-
-# -
-
 
 def metric_to_dict(p, waypoint_preds, input_dict, target_dict, att_weights, i, weight):
     write_dict = {}
@@ -263,8 +237,6 @@ def metric_to_dict(p, waypoint_preds, input_dict, target_dict, att_weights, i, w
     
     return write_dict
 
-
-# +
 abs_min = lambda weight, k: torch.topk(abs(weight)[1:], k+1, largest = False).indices[k].item()
 abs_max = lambda weight, k: torch.topk(abs(weight)[1:], k+1).indices[k].item()
 simple_min = lambda weight, k: torch.topk(weight[1:], k+1, largest = False).indices[k].item()
@@ -278,7 +250,6 @@ write_json_delete = [[[],[],[]] , [[],[],[]], [[],[],[]], [[],[],[]]]  #[names][
 
 
 for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
-
     torch.manual_seed(0)
     torch.cuda.manual_seed(0)
     torch.cuda.manual_seed_all(0)
@@ -338,14 +309,16 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
         
         target_dict["agent_labels"] = target_dict["agent_labels"].cuda()
 
-        preds, waypoint_preds, all_dist_params, attention, adjacency = model(**input_dict)
+        preds, waypoint_preds, all_dist_params, attention, adjacency, gan_features = model(**input_dict)
         adjacency.retain_grad()
+        gan_features.retain_grad()
 
         loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
         loss.backward()
         get_metric(original_model_metric, ade, fde, mr, loss,len(adjacency.grad)) 
         
         adjacency_grad = copy.deepcopy(adjacency.grad)
+        feature_grad = copy.deepcopy(gan_features.grad)
 #         #  sanity check
 #         conv_weight = model.decoder.xy_conv_filters[0].weight
 #         last_weight = model.decoder.value_generator.weight
@@ -380,7 +353,10 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
                 for i in range(parser.maximum_delete_num):  # 하나씩 지우자
                     for idx in range(len(input_dict["agent_features"])): # batch 안의 iteration별로
                         num_vehicles =  int(torch.sum(input_dict["num_agent_mask"][idx]))
-                        weight = adjacency_grad[idx][0]
+                        if parser.use_hidden_feature:
+                            weight = torch.sum(feature_grad[idx], axis=2).squeeze(-1)
+                        else:
+                            weight = adjacency_grad[idx][0]
                         
                         if num_vehicles > 1: # social agent가 1이상일때, 즉 첫번째 social agent의 data가 존재하는 경우
                             arg = function(weight[:num_vehicles], 0)
@@ -392,7 +368,7 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
                             input_dict["ifc_helpers"]["social_oracle_centerline"][idx] = slicing_2Dpadding(input_dict["ifc_helpers"]["social_oracle_centerline"][idx], arg)
                             input_dict["ifc_helpers"]["social_oracle_centerline_lengths"][idx] = slicing_2Dpadding(input_dict["ifc_helpers"]["social_oracle_centerline_lengths"][idx],arg,)
 
-                    preds,waypoint_preds,all_dist_params,att_weights,_ = model(**input_dict)
+                    preds,waypoint_preds,all_dist_params,att_weights,_ , _= model(**input_dict)
                     loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
                     get_metric(DA_model_metric[i], ade, fde, mr, loss, len(adjacency_grad))
 
