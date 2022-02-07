@@ -119,7 +119,7 @@ args = {"IFC":True, "add_centerline":False, "attention_heads":4, "batch_norm":Fa
           "segment_CL_Encoder_Gaussian":False, "segment_CL_Encoder_Gaussian_Prob":False, "segment_CL_Encoder_Prob":True, 
           "segment_CL_Gaussian_Prob":False, "segment_CL_Prob":False, "use_centerline_features":True, "use_oracle":False, "waypoint_step":5, 
           "weight_decay":0.0, "workers":8, "wta":False, "draw_image" : False, "remove_high_related_score" : True, "maximum_delete_num" : 3, 
-          "save_json": True, "make_submit_file" : False, "use_hidden_feature" : True}
+          "save_json": True, "make_submit_file" : False, "use_hidden_feature" : True, :"is_LRP": True}
 
 
 from argparse import ArgumentParser
@@ -168,6 +168,7 @@ test_dataset = DataLoader(test_loader, batch_size=parser.batch_size, num_workers
 model = WIMP(parser)
 model.load_state_dict(torch.load("experiments/example/checkpoints/epoch=122.ckpt")['state_dict'], strict=False) # 학습할 때에는 graph 모듈에서 p에 해당하는 network가 없었으므로
 # model =nn.parallel.DataParallel(model)
+
 model = model.cuda()
 optimizer = optim.SGD(model.parameters(), lr=0.00, momentum=0.9)
 
@@ -318,12 +319,12 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
         get_metric(original_model_metric, ade, fde, mr, loss,len(adjacency.grad)) 
         
         adjacency_grad = copy.deepcopy(adjacency.grad)
-        feature_grad = copy.deepcopy(gan_features.grad)
+        feature_grad = copy.deepcopy(gan_features.grad) * gan_features
 #         #  sanity check
 #         conv_weight = model.decoder.xy_conv_filters[0].weight
 #         last_weight = model.decoder.value_generator.weight
 #         assert torch.all(conv_weight == conv_weight_origin) and torch.all(last_weight == last_weight_origin), 
-#             ("Model is Changed",conv_weight,conv_weight_origin,last_weight,last_weight_origin,)
+#             ("Model is Changed",conv_weight,conv_weigcopyht_origin,last_weight,last_weight_origin,)
 
 
         if parser.draw_image: # batch를 잘라서 그려야됨. 단 이 때 input_dict가 손상이 되지는 않음
@@ -468,11 +469,6 @@ for d in tqdm(range(len(write_json_original)//4)):
 #         plt.show()
 #         print("=" * 100)
 #             print(name)
-# -
-
-np.sum(None)
-
-start_time
 
 # +
 # with open("delete1_test.json", "w") as json_data:

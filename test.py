@@ -75,12 +75,13 @@ def add_experimental_args(parent_parser):
     parser.add_argument('--ckpt_path', type=str, required=True)
     # Logging Params
     parser.add_argument('--experiment-name', type=str, help='Save file prefix')
-
+    parser.add_argument('--XAI_lambda', type=float, default=0.2)
+    
     # Test Parmas
     parser.add_argument('--save_dir', type=str, required=True)
     parser.add_argument('--save_json', action='store_true')
     parser.add_argument('--is_valid', action='store_true')
-        
+    parser.add_argument('--is_LRP', action='store_true')
     return parser
 
 
@@ -106,15 +107,18 @@ def cli_main(args):
                          logger=logger, callbacks=[early_stop_cb])
     os.makedirs(args.save_dir, exist_ok=True)
 
-    trainer.fit(model, dm)
+    result = trainer.fit(model, dm)
     if args.is_valid:
-        result = trainer.test(ckpt_path=args.ckpt_path, test_dataloaders = dm.val_dataloader())
+        a = trainer.test(ckpt_path=args.ckpt_path, test_dataloaders = dm.val_dataloader())
     else:
-        result = trainer.test(ckpt_path=args.ckpt_path, test_dataloaders = dm.test_dataloader())
+        a = trainer.test(ckpt_path=args.ckpt_path, test_dataloaders = dm.test_dataloader())
+        
+#             with open(self.hparams.save_dir + "/" + "test_results.json", 'w') as json_file:
+#                 json.dump(self.json_data, json_file, indent=4)    
     if result:
         with open("result.json", "w") as json_data:
             json.dump(result, json_data)
-    
+
 
 
 if __name__ == '__main__':
