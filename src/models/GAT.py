@@ -5,7 +5,7 @@ import torch.nn as nn
 class GraphAttentionLayerLRP(nn.Module):
     def __init__(self, input_dim, output_dim, num_gat_iters=1, num_heads=4, dropout=0.5,
                  alpha=0.2, XAI_lambda=0.2):
-        super(GraphAttentionLayer, self).__init__()
+        super(GraphAttentionLayerLRP, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.num_gat_iters = num_gat_iters

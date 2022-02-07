@@ -210,30 +210,31 @@ class WIMP(pl.LightningModule):
 
         if self.hparams.save_json:
             for i, p in enumerate(preds):
-#                 write_dict = {}
-#                 write_dict['preds'] = p.tolist() 
-# #                 write_dict['waypoint_preds'] = [waypoint_preds[0][i].tolist(), waypoint_preds[1][i].tolist()]
-#                 write_dict['rotation'] = input_dict['ifc_helpers']['rotation'][i].tolist()
-#                 write_dict['translation'] = input_dict['ifc_helpers']['translation'][i].tolist()
-#                 write_dict['csv_file'] = input_dict['ifc_helpers']['csv_file'][i]
-#                 write_dict['city'] = str(input_dict['ifc_helpers']['city'][i])
+                write_dict = {}
+                write_dict['preds'] = p.tolist() 
+#                 write_dict['waypoint_preds'] = [waypoint_preds[0][i].tolist(), waypoint_preds[1][i].tolist()]
+                write_dict['rotation'] = input_dict['ifc_helpers']['rotation'][i].tolist()
+                write_dict['translation'] = input_dict['ifc_helpers']['translation'][i].tolist()
+                write_dict['csv_file'] = input_dict['ifc_helpers']['csv_file'][i]
+                write_dict['city'] = str(input_dict['ifc_helpers']['city'][i])
                 
                 
-                result.log('preds', p.tolist())
-#                 result.log('waypoint_preds', agent_mean_ade)
-                result.log('rotation', input_dict['ifc_helpers']['rotation'][i].tolist())
-                result.log('translation', input_dict['ifc_helpers']['translation'][i].tolist())
-                result.log('csv_file', input_dict['ifc_helpers']['csv_file'][i])
-                result.log('city', str(input_dict['ifc_helpers']['city'][i]))
+#                 result.log('preds', p.tolist())
+# #                 result.log('waypoint_preds', agent_mean_ade)
+#                 result.log('rotation', input_dict['ifc_helpers']['rotation'][i].tolist())
+#                 result.log('translation', input_dict['ifc_helpers']['translation'][i].tolist())
+#                 result.log('csv_file', input_dict['ifc_helpers']['csv_file'][i])
+#                 result.log('city', str(input_dict['ifc_helpers']['city'][i]))
                 
-#                 write_dict['agent_labels'] = target_dict['agent_labels'][i].tolist()
-#                 write_dict['agent_features'] = input_dict['agent_features'][i].tolist()
-#                 write_dict['social_features'] = input_dict['social_features'][i].tolist()
-#                 write_dict['social_label_features'] = input_dict['social_label_features'][i].tolist()
-#                 if self.hparams.is_valid:
-#                     write_dict['att_weights'] = att_weights[i].tolist()
+                write_dict['agent_labels'] = target_dict['agent_labels'][i].tolist()
+                write_dict['agent_features'] = input_dict['agent_features'][i].tolist()
+                write_dict['social_features'] = input_dict['social_features'][i].tolist()
+                write_dict['social_label_features'] = input_dict['social_label_features'][i].tolist()
+                if self.hparams.is_valid:
+                    write_dict['att_weights'] = att_weights[i].tolist()
                     
-#                 self.json_data.append(write_dict)
+                with open(self.hparams.save_dir + "/" + str(input_dict['ifc_helpers']['idx'][i]) + '.json', 'w') as json_file:
+                    json.dump(write_dict, json_file, indent=4)
                                                                                       
         return result
 
@@ -247,15 +248,11 @@ class WIMP(pl.LightningModule):
                     result.log(k, torch.mean(outputs[k]).item())
                     result_dict[k] = torch.mean(outputs[k]).item()
                     
-        else:
-            print(outputs)
-            pass
-#             result.log('json_data', self.json_data)
 #             print("save_json!!!!!!!!!!!!")
 #             with open(self.hparams.save_dir + "/" + "test_results.json", 'w') as json_file:
 #                 json.dump(self.json_data, json_file, indent=4)
-        return outputs
-#             return pl.EvalResult()
+        # return outputs
+        return result
         
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.weight_decay)

@@ -119,7 +119,7 @@ args = {"IFC":True, "add_centerline":False, "attention_heads":4, "batch_norm":Fa
           "segment_CL_Encoder_Gaussian":False, "segment_CL_Encoder_Gaussian_Prob":False, "segment_CL_Encoder_Prob":True, 
           "segment_CL_Gaussian_Prob":False, "segment_CL_Prob":False, "use_centerline_features":True, "use_oracle":False, "waypoint_step":5, 
           "weight_decay":0.0, "workers":8, "wta":False, "draw_image" : False, "remove_high_related_score" : True, "maximum_delete_num" : 3, 
-          "save_json": True, "make_submit_file" : False, "use_hidden_feature" : True, is_LRP: True}
+          "save_json": True, "make_submit_file" : False, "use_hidden_feature" : True, "is_LRP": True}
 
 
 from argparse import ArgumentParser
