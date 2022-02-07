@@ -119,7 +119,7 @@ args = {"IFC":True, "add_centerline":False, "attention_heads":4, "batch_norm":Fa
           "segment_CL_Encoder_Gaussian":False, "segment_CL_Encoder_Gaussian_Prob":False, "segment_CL_Encoder_Prob":True, 
           "segment_CL_Gaussian_Prob":False, "segment_CL_Prob":False, "use_centerline_features":True, "use_oracle":False, "waypoint_step":5, 
           "weight_decay":0.0, "workers":8, "wta":False, "draw_image" : False, "remove_high_related_score" : True, "maximum_delete_num" : 3, 
-          "save_json": True, "make_submit_file" : False, "use_hidden_feature" : True, "is_LRP": True}
+          "save_json": False, "make_submit_file" : False, "use_hidden_feature" : True, "is_LRP": True}
 
 
 from argparse import ArgumentParser
@@ -180,10 +180,10 @@ last_weight_origin = copy.deepcopy(model.decoder.value_generator.weight)
 # -
 
 def get_metric(metric_dict, ade,fde,mr,loss, length):
-    metric_dict["ade"] += (ade * length).cpu().item()
-    metric_dict["fde"] += (fde * length).cpu().item()
-    metric_dict["mr"] += (mr * length).cpu().item()
-    metric_dict["loss"] += (loss * length).cpu().item()
+    metric_dict["ade"] += (ade * length)#.cpu().item()
+    metric_dict["fde"] += (fde * length)#.cpu().item()
+    metric_dict["mr"] += (mr * length)#.cpu().item()
+    metric_dict["loss"] += (loss * length)#.cpu().item()
     metric_dict["length"]+=length
 
 
@@ -260,6 +260,7 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
     random.seed(0)
     torch.backends.cudnn.benchmark = False
     
+    
     original_model_metric = {
         "ade": 0.0,
         "fde": 0.0,
@@ -316,10 +317,13 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
 
         loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
         loss.backward()
+
         get_metric(original_model_metric, ade, fde, mr, loss,len(adjacency.grad)) 
         
         adjacency_grad = copy.deepcopy(adjacency.grad)
-        feature_grad = copy.deepcopy(gan_features.grad) * gan_features
+        feature_grad = torch.sum(gan_features.grad * gan_features, axis=3).squeeze(-1)
+
+        
 #         #  sanity check
 #         conv_weight = model.decoder.xy_conv_filters[0].weight
 #         last_weight = model.decoder.value_generator.weight
@@ -343,21 +347,23 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
 #                     save_fig=True,save_name=save_attention+ "/"+ str(batch_idx)+ "_"+ str(idx)+ ".png",)
                 XAI_utils.draw(agent_features,social_features, batch_preds, city_name, rotation, translation, weight=copy.deepcopy(weight), draw_future=True,
                     save_fig=True, save_name=save_XAI + "/" + str(batch_idx) + "_" + str(idx) + ".png")
-
+                  
 
 
         if parser.remove_high_related_score:
-            write_dict = copy.deepcopy([metric_to_dict(preds[i], waypoint_preds, input_dict, target_dict, attention,i, adjacency_grad[i][0]) for i in range(len(preds))])
-            write_json_original += write_dict
+            if parser.save_json:
+                write_dict = copy.deepcopy([metric_to_dict(preds[i], waypoint_preds, input_dict, target_dict, attention,i, adjacency_grad[i][0]) for i in range(len(preds))])
+                write_json_original += write_dict
 
             with torch.no_grad():
                 for i in range(parser.maximum_delete_num):  # 하나씩 지우자
                     for idx in range(len(input_dict["agent_features"])): # batch 안의 iteration별로
                         num_vehicles =  int(torch.sum(input_dict["num_agent_mask"][idx]))
                         if parser.use_hidden_feature:
-                            weight = torch.sum(feature_grad[idx], axis=2).squeeze(-1)
+                            weight = feature_grad[idx]
                         else:
                             weight = adjacency_grad[idx][0]
+                        
                         
                         if num_vehicles > 1: # social agent가 1이상일때, 즉 첫번째 social agent의 data가 존재하는 경우
                             arg = function(weight[:num_vehicles], 0)
@@ -365,16 +371,19 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
 
                             input_dict["num_agent_mask"][idx] = slicing_1Dpadding(input_dict["num_agent_mask"][idx], arg + 1)
                             adjacency_grad[idx][0] = slicing_1Dpadding(adjacency_grad[idx][0], arg+1)
+                            feature_grad[idx] = slicing_1Dpadding(feature_grad[idx], arg+1)
+
                             input_dict["social_features"][idx] = slicing_2Dpadding(input_dict["social_features"][idx], arg)
                             input_dict["ifc_helpers"]["social_oracle_centerline"][idx] = slicing_2Dpadding(input_dict["ifc_helpers"]["social_oracle_centerline"][idx], arg)
                             input_dict["ifc_helpers"]["social_oracle_centerline_lengths"][idx] = slicing_2Dpadding(input_dict["ifc_helpers"]["social_oracle_centerline_lengths"][idx],arg,)
 
-                    preds,waypoint_preds,all_dist_params,att_weights,_ , _= model(**input_dict)
-                    loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
+                    preds_,waypoint_preds_,_,_,_ , _= model(**input_dict)
+                    loss, (ade, fde, mr) = model.eval_preds(preds_, target_dict, waypoint_preds_)
                     get_metric(DA_model_metric[i], ade, fde, mr, loss, len(adjacency_grad))
 
-                    write_dict = copy.deepcopy([metric_to_dict(preds[j], waypoint_preds, input_dict, target_dict, attention,j, adjacency_grad[j][0]) for j in range(len(preds))])
-                    write_json_delete[name_idx][i] += write_dict
+                    if parser.use_hidden_feature:
+                        write_dict = copy.deepcopy([metric_to_dict(preds_[j], waypoint_preds_, input_dict, target_dict, attention,j, adjacency_grad[j][0]) for j in range(len(preds))])
+                        write_json_delete[name_idx][i] += write_dict
                     
         torch.cuda.empty_cache()
 
@@ -385,13 +394,13 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
         metric["mr"] /= metric["length"]
         metric["loss"] /= metric["length"]
         return {
-            "fde": metric["fde"],
-            "ade": metric["ade"],
-            "loss": metric["loss"],
-            "mr": metric["mr"]
+            "fde": metric["fde"].cpu().item(),
+            "ade": metric["ade"].cpu().item(),
+            "loss": metric["loss"].cpu().item(),
+            "mr": metric["mr"].cpu().item()
         }
     
-    if parser.save_json:
+    if parser.is_LRP:
         for i in range(len(DA_model_metric)):
             DA_model_metric[i] = calc_mean(DA_model_metric[i])
         original_model_metric = calc_mean(original_model_metric)
@@ -432,40 +441,41 @@ for item in range(len(write_json_original)):
 f_n = ["abs_min", "abs_max", "simple_min", "simple_max"]
 from matplotlib import pyplot as plt
 
-for d in tqdm(range(len(write_json_original)//4)):
-    xyrange = None
-    for d_num in range(4):
-        fig = plt.figure(figsize=(20, 20))
+if parser.draw_image:
+    for d in tqdm(range(len(write_json_original)//4)):
+        xyrange = None
+        for d_num in range(4):
+            fig = plt.figure(figsize=(20, 20))
 
-        for f in range(4):
-            name = f"{f_n[f]}_____delete {d_num}____dataset {d}"
-            if d_num == 0:
-                data = write_json_original[d]
-            else:
-                data = write_json_delete[f][d_num-1][d]
-            
-            
-            agent_features = np.array(data["agent_features"])
-            social_features = np.array(data["social_features"])
-            preds = np.array(data["preds"])[0]
-            city = data["city"]
-            rotation = data["rotation"]
-            translation = data["translation"]
-            draw_future = True, 
-            weight = np.array(data["weight"])
-            masking = data["mask"]
-            gt = data["gt"]
-            
-            plt.subplot(221 + f)
-#             print(xyrange)
-#             print(weight)
-            xyrange = draw(agent_features, social_features, preds, city, rotation,translation, gt = gt,
-                          draw_future = True, weight = weight, plot_name = name, plt = plt, social_nums = np.sum(masking)-1, xyrange = xyrange)
-            plt.tight_layout()
+            for f in range(4):
+                name = f"{f_n[f]}_____delete {d_num}____dataset {d}"
+                if d_num == 0:
+                    data = write_json_original[d]
+                else:
+                    data = write_json_delete[f][d_num-1][d]
 
-        save_name = f"ResultsImg/{start_time}/dataset_{d}___delete_{d_num}.png"
-        plt.savefig(save_name)
-        plt.close()
+
+                agent_features = np.array(data["agent_features"])
+                social_features = np.array(data["social_features"])
+                preds = np.array(data["preds"])[0]
+                city = data["city"]
+                rotation = data["rotation"]
+                translation = data["translation"]
+                draw_future = True, 
+                weight = np.array(data["weight"])
+                masking = data["mask"]
+                gt = data["gt"]
+
+                plt.subplot(221 + f)
+    #             print(xyrange)
+    #             print(weight)
+                xyrange = draw(agent_features, social_features, preds, city, rotation,translation, gt = gt,
+                              draw_future = True, weight = weight, plot_name = name, plt = plt, social_nums = np.sum(masking)-1, xyrange = xyrange)
+                plt.tight_layout()
+
+            save_name = f"ResultsImg/{start_time}/dataset_{d}___delete_{d_num}.png"
+            plt.savefig(save_name)
+            plt.close()
 #         plt.show()
 #         print("=" * 100)
 #             print(name)
@@ -477,51 +487,49 @@ for d in tqdm(range(len(write_json_original)//4)):
 #     json.dump(write_json_delete[1], json_data)
 # with open("delete3_test.json", "w") as json_data:
 #     json.dump(write_json_delete[2], json_data)
-
-
-# +
-file_names = ["origial", "delete_one", "delete_two", "delete_three"]
-
-for data, output_path in zip([write_json_original, write_json_delete[0], write_json_delete[1], write_json_delete[2]], file_names):
-    output_path = "competition_files/" + output_path + "/" + output_path + ".h5"
-    if parser.make_submit_file:
-        def denormalization(arr, angle, translation):
-
-            theta = (angle)/180*math.pi
-            c, s = np.cos(theta), np.sin(theta)
-            R = np.array(((c, -s), (s, c)))
-
-            #rotate
-            arr = np.array(R.dot(arr.transpose())).transpose()
-            #translate
-            arr += translation
-        #     arr[...,0] += (AGENT[19,0] - AGENT[0,0])
-        #     arr[...,1] += (AGENT[19,1] - AGENT[0,1])
-            return arr    
-
-
-        def prediction(json_dict):
-            preds = np.array(json_dict['preds'][0])[...,:2]
-            preds = np.array([denormalization(p, -json_dict['rotation'], -np.array(json_dict['translation'])) for p in preds])
-            seq_id = int(json_dict['csv_file'].split('.')[0])
-            return preds, seq_id    
-
-
-        from tqdm.notebook import tqdm
-        from argoverse.evaluation.competition_util import generate_forecasting_h5
-        ##########################======================================#############################
-#         data = write_json_delete[2]
-#         output_path =  "competition_files/delete_three/"
-        ##########################======================================#############################
-
-        output_all = {}
-        for d in tqdm(data):
-            p, seq_id = prediction(d)
-            output_all[seq_id] = p
-        generate_forecasting_h5(output_all, output_path)    
-
-
 # -
+
+
+if parser.make_submit_file:
+    file_names = ["origial", "delete_one", "delete_two", "delete_three"]
+
+    for data, output_path in zip([write_json_original, write_json_delete[0], write_json_delete[1], write_json_delete[2]], file_names):
+        output_path = "competition_files/" + output_path + "/" + output_path + ".h5"
+        if parser.make_submit_file:
+            def denormalization(arr, angle, translation):
+
+                theta = (angle)/180*math.pi
+                c, s = np.cos(theta), np.sin(theta)
+                R = np.array(((c, -s), (s, c)))
+
+                #rotate
+                arr = np.array(R.dot(arr.transpose())).transpose()
+                #translate
+                arr += translation
+            #     arr[...,0] += (AGENT[19,0] - AGENT[0,0])
+            #     arr[...,1] += (AGENT[19,1] - AGENT[0,1])
+                return arr    
+
+
+            def prediction(json_dict):
+                preds = np.array(json_dict['preds'][0])[...,:2]
+                preds = np.array([denormalization(p, -json_dict['rotation'], -np.array(json_dict['translation'])) for p in preds])
+                seq_id = int(json_dict['csv_file'].split('.')[0])
+                return preds, seq_id    
+
+
+            from tqdm.notebook import tqdm
+            from argoverse.evaluation.competition_util import generate_forecasting_h5
+            ##########################======================================#############################
+    #         data = write_json_delete[2]
+    #         output_path =  "competition_files/delete_three/"
+            ##########################======================================#############################
+
+            output_all = {}
+            for d in tqdm(data):
+                p, seq_id = prediction(d)
+                output_all[seq_id] = p
+            generate_forecasting_h5(output_all, output_path)
 
 
 def prediction_draw(root_dir, file):
@@ -529,6 +537,7 @@ def prediction_draw(root_dir, file):
 
     with open(root_dir + file, 'r') as json_data:
         json_dict = json.load(json_data)
+        
     print(json_dict['csv_file'])
     print(json_dict.keys())
     preds = np.array(json_dict['preds'][0])[...,:2]
