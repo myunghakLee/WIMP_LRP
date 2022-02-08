@@ -213,7 +213,7 @@ import time
 now = time.localtime()
  
 start_time = "%02d_%02d_%02d_%02d" % (now.tm_mon, now.tm_mday, now.tm_hour, now.tm_min)
-start_time = parser.name + start_time
+start_time = parser.name + str(parser.XAI_lambda) + start_time
 save_folder = "results_XAI/" + start_time + "___" + str(parser.XAI_lambda).replace(".", "_") + "/"
 
 os.mkdir(save_folder)
