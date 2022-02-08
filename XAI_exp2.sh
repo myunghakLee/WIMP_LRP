@@ -1,0 +1,9 @@
+CUDA_VISIBLE_DEVICES=1 python XAI_calc_metric.py --XAI_lambda 0.0 --name hidden_feature_XAI
+CUDA_VISIBLE_DEVICES=1 python XAI_calc_metric.py --XAI_lambda 0.1 --name hidden_feature_XAI
+CUDA_VISIBLE_DEVICES=1 python XAI_calc_metric.py --XAI_lambda 0.3 --name hidden_feature_XAI
+CUDA_VISIBLE_DEVICES=1 python XAI_calc_metric.py --XAI_lambda 0.4 --name hidden_feature_XAI
+CUDA_VISIBLE_DEVICES=1 python XAI_calc_metric.py --XAI_lambda 0.5 --name hidden_feature_XAI
+CUDA_VISIBLE_DEVICES=1 python XAI_calc_metric.py --XAI_lambda 0.6 --name hidden_feature_XAI
+CUDA_VISIBLE_DEVICES=1 python XAI_calc_metric.py --XAI_lambda 0.7 --name hidden_feature_XAI
+CUDA_VISIBLE_DEVICES=1 python XAI_calc_metric.py --XAI_lambda 0.8 --name hidden_feature_XAI
+CUDA_VISIBLE_DEVICES=1 python XAI_calc_metric.py --XAI_lambda 0.9 --name hidden_feature_XAI

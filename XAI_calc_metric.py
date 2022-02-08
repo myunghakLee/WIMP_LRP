@@ -381,7 +381,7 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
                     loss, (ade, fde, mr) = model.eval_preds(preds_, target_dict, waypoint_preds_)
                     get_metric(DA_model_metric[i], ade, fde, mr, loss, len(adjacency_grad))
 
-                    if parser.use_hidden_feature:
+                    if parser.save_json:
                         write_dict = copy.deepcopy([metric_to_dict(preds_[j], waypoint_preds_, input_dict, target_dict, attention,j, adjacency_grad[j][0]) for j in range(len(preds))])
                         write_json_delete[name_idx][i] += write_dict
                     
