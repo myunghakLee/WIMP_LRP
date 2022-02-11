@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# + endofcell="--"
+# -*- coding: utf-8 -*-
 import json
 
 import pytorch_lightning as pl
@@ -9,7 +11,7 @@ from argparse import ArgumentParser
 from pytorch_lightning.metrics.functional import accuracy
 from torch.nn import functional as F
 
-# +
+# # +
 from src.models.WIMP_decoder import WIMPDecoder
 from src.models.WIMP_encoder import WIMPEncoder
 from src.models.GAT import GraphAttentionLayer, GraphAttentionLayerLRP
@@ -23,7 +25,8 @@ import XAI_utils
 import json
 
 
-# +
+
+# # +
 class WIMP(pl.LightningModule):
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -104,19 +107,19 @@ class WIMP(pl.LightningModule):
         else:
             gan_features = encoding.view(social_features.size(0), social_features.size(1) + 1,
                                          1, -1)
-            if gan_features.requires_grad:
-                gan_features.retain_grad()
+#             if gan_features.requires_grad:
+#                 gan_features.retain_grad()
 
         adjacency = torch.ones(gan_features.size(1), gan_features.size(1)).to(
             gan_features.get_device()).float().unsqueeze(0).repeat(gan_features.size(0), 1, 1)
         adjacency.requires_grad = True  # backpropagation시 gradient 쌓이게 하기 위해서 추가해줌 
-        adjacency.retain_grad()  # backpropagation시 gradient 쌓이게 하기 위해서 추가해줌
+#         adjacency.retain_grad()  # backpropagation시 gradient 쌓이게 하기 위해서 추가해줌
 
         adjacency = adjacency * num_agent_mask.unsqueeze(1) * num_agent_mask.unsqueeze(2)
 
         graph_output, att_weights = self.gat(gan_features, adjacency)  # att_weights는 LRP하고는 연관이 없음, 모델에서 생각하고 있는 attention
-        att_weights.requires_grad = True
-        att_weights.retain_grad()
+#         att_weights.requires_grad = True
+#         att_weights.retain_grad()
 
         graph_output = graph_output.narrow(1, 0, 1).squeeze(1)
         if self.hparams.batch_norm:
@@ -144,7 +147,7 @@ class WIMP(pl.LightningModule):
         # Compute loss and metrics
         loss, metrics = self.eval_preds(preds, target_dict, waypoint_preds)
         agent_mean_ade, agent_mean_fde, agent_mean_mr = metrics
-        adjacency.retain_grad()
+#         adjacency.retain_grad()
         pl.TrainResult(loss)
 
         # Log results from training step
@@ -329,3 +332,5 @@ class WIMP(pl.LightningModule):
                             target_dict['agent_labels'])
 
         return total_loss, (agent_mean_ade, agent_mean_fde, agent_mean_mr)
+
+# --

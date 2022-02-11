@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# + endofcell="--"
+# -*- coding: utf-8 -*-
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 import numpy as np
@@ -18,19 +20,19 @@ from src.data.argoverse_dataset import ArgoverseDataset
 from src.data.dummy_datamodule import DummyDataModule
 from src.models.WIMP import WIMP
 
-# +
+# # +
 from argoverse.map_representation.map_api import ArgoverseMap
 
 am = ArgoverseMap()
 
-# +
+# # +
 import XAI_utils
 
 import torch.backends.cudnn as cudnn
 import random
 
 
-# +
+# # +
 
 
 def draw(agent_features, social_features, preds, city_name, rotation, translation, social_nums = None ,weight = None, gt = None,
@@ -180,10 +182,10 @@ last_weight_origin = copy.deepcopy(model.decoder.value_generator.weight)
 # -
 
 def get_metric(metric_dict, ade,fde,mr,loss, length):
-    metric_dict["ade"] += (ade * length)#.cpu().item()
-    metric_dict["fde"] += (fde * length)#.cpu().item()
-    metric_dict["mr"] += (mr * length)#.cpu().item()
-    metric_dict["loss"] += (loss * length)#.cpu().item()
+    metric_dict["ade"] += (ade * length).cpu().item()
+    metric_dict["fde"] += (fde * length).cpu().item()
+    metric_dict["mr"] += (mr * length).cpu().item()
+    metric_dict["loss"] += (loss * length).cpu().item()
     metric_dict["length"]+=length
 
 
@@ -197,16 +199,13 @@ Relu = nn.ReLU()
 
 save_foler = "ResultsImg/"
 
-# +
+# # +
 save_XAI = save_foler + "/XAI/"
 save_attention = save_foler + "/attention"
 
 slicing = lambda a, idx: torch.cat((a[:idx], a[idx+1:]), axis=1)
 slicing_2Dpadding = lambda a, idx: torch.cat((a[:idx], a[idx+1:], torch.zeros_like(a[0:1])), axis=0)
 slicing_1Dpadding = lambda a, idx: F.pad(torch.cat((a[:idx], a[idx+1:]), axis=0), (0,1))
-
-a = torch.tensor([1,2,3,4,5])
-slicing_1Dpadding(a, 5)
 
 import time
 
@@ -294,6 +293,7 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
     ]  # 하나씩 지우면서 metric을 잴것임
 
     for batch_idx, batch in enumerate(tqdm(val_dataset)):
+
         input_dict, target_dict = batch[0], batch[1]
 
         # get cuda
@@ -312,11 +312,16 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
         target_dict["agent_labels"] = target_dict["agent_labels"].cuda()
 
         preds, waypoint_preds, all_dist_params, attention, adjacency, gan_features = model(**input_dict)
+#         adjacency.requires_grad = True
+#         gan_features.requires_grad = True
         adjacency.retain_grad()
         gan_features.retain_grad()
-
+        
+            
         loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
         loss.backward()
+        assert adjacency.grad != None, "adjacency_grad is None"
+        assert gan_features.grad != None, "gan_features_grad is None"
 
         get_metric(original_model_metric, ade, fde, mr, loss,len(adjacency.grad)) 
         
@@ -324,7 +329,7 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
         feature_grad = torch.sum(gan_features.grad * gan_features, axis=3).squeeze(-1)
 
         
-#         #  sanity check
+# #         #  sanity check
 #         conv_weight = model.decoder.xy_conv_filters[0].weight
 #         last_weight = model.decoder.value_generator.weight
 #         assert torch.all(conv_weight == conv_weight_origin) and torch.all(last_weight == last_weight_origin), 
@@ -384,8 +389,10 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
                     if parser.save_json:
                         write_dict = copy.deepcopy([metric_to_dict(preds_[j], waypoint_preds_, input_dict, target_dict, attention,j, adjacency_grad[j][0]) for j in range(len(preds))])
                         write_json_delete[name_idx][i] += write_dict
-                    
-        torch.cuda.empty_cache()
+        adjacency.detach()
+        gan_features.detach()
+         
+#         torch.cuda.empty_cache()
 
         
     def calc_mean(metric):
@@ -394,10 +401,10 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
         metric["mr"] /= metric["length"]
         metric["loss"] /= metric["length"]
         return {
-            "fde": metric["fde"].cpu().item(),
-            "ade": metric["ade"].cpu().item(),
-            "loss": metric["loss"].cpu().item(),
-            "mr": metric["mr"].cpu().item()
+            "fde": metric["fde"],
+            "ade": metric["ade"],
+            "loss": metric["loss"],
+            "mr": metric["mr"]
         }
     
     if parser.is_LRP:
@@ -437,7 +444,7 @@ for item in range(len(write_json_original)):
     social_features = np.sum(np.array(social_features)[:, :1] != 0)
     assert (mask*2 -2 == social_features ), (mask, social_features)
 
-# +
+# # +
 f_n = ["abs_min", "abs_max", "simple_min", "simple_max"]
 from matplotlib import pyplot as plt
 
@@ -480,7 +487,7 @@ if parser.draw_image:
 #         print("=" * 100)
 #             print(name)
 
-# +
+# # +
 # with open("delete1_test.json", "w") as json_data:
 #     json.dump(write_json_delete[0], json_data)
 # with open("delete2_test.json", "w") as json_data:
@@ -546,3 +553,5 @@ def prediction_draw(root_dir, file):
     return preds, seq_id
 
 
+
+# --
