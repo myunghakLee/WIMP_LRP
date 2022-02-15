@@ -162,11 +162,6 @@ write_json_delete = [[[],[],[]] , [[],[],[]], [[],[],[]], [[],[],[]]]  #[names][
 # --
 
 # +
-# for d in train_dataset:
-#     print(d[0])
-#     break
-
-# +
 softmax = torch.nn.Softmax(dim=2)
 
 def calc_mean(metric):
@@ -233,14 +228,20 @@ for dataset in [val_dataset, train_dataset]:
         adjacency_grad = adjacency * adjacency.grad
         feature_grad = torch.sum(gan_features.grad * gan_features, axis=3).squeeze(-1)
 
-        for ii in range(len(input_dict['ifc_helpers']['file_path'])):
-            load_path = input_dict['ifc_helpers']['file_path'][ii]
-            save_path = input_dict['ifc_helpers']['file_path'][ii].replace("argoverse_processed_simple", "argoverse_with_LRP")
+#         for ii in range(len(input_dict['ifc_helpers']['file_path'])):
+#             load_path = input_dict['ifc_helpers']['file_path'][ii]
+#             save_path = input_dict['ifc_helpers']['file_path'][ii].replace("argoverse_processed_simple", "argoverse_with_LRP")
 
-            with open(load_path, 'rb') as f:
-                d = pickle.load(f)
-            d['ADJACENCY'] = adjacency_grad[ii].cpu().detach().tolist()
-            with open(save_path, "wb") as f:
-                pickle.dump(d, f)
+#             with open(load_path, 'rb') as f:
+#                 d = pickle.load(f)
+#             d['ADJACENCY'] = adjacency_grad[ii].cpu().detach().tolist()
+#             with open(save_path, "wb") as f:
+#                 pickle.dump(d, f)
+
+# -
 
 
+with open(save_path, "rb") as f:
+    d = pickle.load(f)
+
+d

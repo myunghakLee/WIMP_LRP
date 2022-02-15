@@ -239,8 +239,11 @@ class ArgoverseDataset(Dataset):
         indexer = np.arange(num_social_agents + 1)
         adjacency[:, indexer, indexer] = 0
         label_adjacency[:, indexer, indexer] = 0
-
-        example['adjacency'] = adjacency
+        
+        if 'ADJACENCY' in data:
+            example['adjacency'] = data['ADJACENCY']
+        else:
+            example['adjacency'] = adjacency
         example['label_adjacency'] = label_adjacency
 
         '''
@@ -261,9 +264,12 @@ class ArgoverseDataset(Dataset):
         social_label_mask = example['social_label_mask']
         num_agent_mask = np.ones(example['num_social_agents'] + 1, dtype=np.float32)
         # num_agent_mask = (example['num_social_agents'][:, None] >= torch.arange(social_label_mask.size(1) + 1)).astype(np.float32)
-        adjacency = example['adjacency'].astype(np.float32)
         label_adjacency = example['label_adjacency'].astype(np.float32)
-
+        if 'ADJACENCY' not in data:
+            adjacency = example['adjacency'].astype(np.float32)
+        else:
+            adjacency = np.array([example['adjacency'] for _ in range(20)]).astype(np.float32)
+            
         # Get labels
         agent_labels = example['agent_xy_labels' + self.delta_str].astype(np.float32)
         social_labels = example['social_xy_labels' + self.delta_str].astype(np.float32)
@@ -284,7 +290,7 @@ class ArgoverseDataset(Dataset):
         ifc_helpers['idx'] = example['seq_id']
         ifc_helpers['csv_file'] = data['PATH'].split('/')[-1]
         ifc_helpers['file_path'] = example['file_path']
-
+        
 
         if self.delta:
             ifc_helpers['agent_xy_delta'] = example['agent_xy_ref_end'].astype(np.float32)
