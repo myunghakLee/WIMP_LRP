@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
-# +
-# -*- coding: utf-8 -*-
+
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 import numpy as np
@@ -32,7 +30,9 @@ import torch.backends.cudnn as cudnn
 import random
 os.environ["CUDA_VISIBLE_DEVICES"]= "2"
 
-# # +
+
+from argparse import ArgumentParser
+parser = ArgumentParser()
 
 # + endofcell="--"
 def draw(agent_features, social_features, preds, city_name, rotation, translation, social_nums = None ,weight = None, gt = None,
@@ -122,10 +122,6 @@ args = {"IFC":True, "add_centerline":False, "attention_heads":4, "batch_norm":Fa
           "segment_CL_Gaussian_Prob":False, "segment_CL_Prob":False, "use_centerline_features":True, "use_oracle":False, "waypoint_step":5, 
           "weight_decay":0.0, "workers":8, "wta":False, "draw_image" : False, "remove_high_related_score" : True, "maximum_delete_num" : 3, 
           "save_json": False, "make_submit_file" : False, "use_hidden_feature" : True, "is_LRP": True, "adjacency_exp" : True}
-
-
-from argparse import ArgumentParser
-parser = ArgumentParser()
 
 
 for k in args:

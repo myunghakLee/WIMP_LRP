@@ -26,12 +26,12 @@ import XAI_utils
 
 import torch.backends.cudnn as cudnn
 import random
-os.environ["CUDA_VISIBLE_DEVICES"]= "1,2"
+os.environ["CUDA_VISIBLE_DEVICES"]= "1"
 
 # +
 
-args = {"IFC":True, "add_centerline":False, "attention_heads":4, "batch_norm":False, "batch_size":64, "check_val_every_n_epoch":3, 
-          "dataroot":'./data/argoverse_with_LRP', "dataset":'argoverse', "distributed_backend":'ddp', "dropout":0.0, 
+args = {"IFC":True, "add_centerline":False, "attention_heads":4, "batch_norm":False, "batch_size":25, "check_val_every_n_epoch":3, 
+          "dataroot":'./data/argoverse_processed_simple', "dataset":'argoverse', "distributed_backend":'ddp', "dropout":0.0, 
           "early_stop_threshold":5, "experiment_name":'example', "gpus":3, "gradient_clipping":True, "graph_iter":1, 
           "hidden_dim":512, "hidden_key_generator":True, "hidden_transform":False, "input_dim":2, "k_value_threshold":10, 
           "k_values":[6, 5, 4, 3, 2, 1], "lr":0.0001, "map_features":False, "max_epochs":200, "mode":'train', "model_name":'WIMP', 
@@ -41,7 +41,7 @@ args = {"IFC":True, "add_centerline":False, "attention_heads":4, "batch_norm":Fa
           "segment_CL_Encoder_Gaussian":False, "segment_CL_Encoder_Gaussian_Prob":False, "segment_CL_Encoder_Prob":True, 
           "segment_CL_Gaussian_Prob":False, "segment_CL_Prob":False, "use_centerline_features":True, "use_oracle":False, "waypoint_step":5, 
           "weight_decay":0.0, "workers":8, "wta":False, "draw_image" : False, "remove_high_related_score" : False, "maximum_delete_num" : 3, 
-          "save_json": False, "make_submit_file" : False, "use_hidden_feature" : True, "is_LRP": True, "adjacency_exp" : True}
+          "save_json": False, "make_submit_file" : False, "use_hidden_feature" : True, "is_LRP": False, "adjacency_exp" : True}
 
 from argparse import ArgumentParser
 parser = ArgumentParser()
@@ -87,7 +87,7 @@ test_dataset = DataLoader(test_loader, batch_size=parser.batch_size, num_workers
 
 
 model = WIMP(parser)
-model.load_state_dict(torch.load("experiments/example/checkpoints/epoch=122.ckpt")['state_dict'], strict=False) # 학습할 때에는 graph 모듈에서 p에 해당하는 network가 없었으므로
+model.load_state_dict(torch.load("experiments/example_old/checkpoints/epoch=122.ckpt")['state_dict'], strict=False) # 학습할 때에는 graph 모듈에서 p에 해당하는 network가 없었으므로
 
 model = model.cuda()
 optimizer = optim.SGD(model.parameters(), lr=0.0001, momentum=0.9)
@@ -164,11 +164,13 @@ def calc_mean(metric):
 
 
 # +
-# for batch_idx, batch in enumerate(tqdm(val_dataset)):
-#     input_dict, target_dict = batch[0], batch[1]
+for batch_idx, batch in enumerate(tqdm(val_dataset)):
+    input_dict, target_dict = batch[0], batch[1]
+    input_dict["adjacency"] = softmax(input_dict["adjacency"]) * len(input_dict['adjacency'][0])
+    print(input_dict['adjacency'].shape)
     
 #     print(softmax(input_dict['adjacency'][:, 0, :, :]) * len(input_dict['adjacency'][0][0]))
-#     break
+    break
 
 # +
 
@@ -208,46 +210,21 @@ for epoch_id in range(10):
         input_dict["ifc_helpers"]["agent_oracle_centerline"] = input_dict["ifc_helpers"]["agent_oracle_centerline"].cuda()
         
         target_dict["agent_labels"] = target_dict["agent_labels"].cuda()
-
-        input_dict["adjacency"] = softmax(input_dict["adjacency"][:,0,:,:]) * len(input_dict['adjacency'][0][0])
         
-        with torch.no_grad():
-            preds, waypoint_preds, all_dist_params, attention, adjacency, gan_features, graph_output = model(**input_dict)
+        input_dict["adjacency"] = softmax(input_dict["adjacency"]) * len(input_dict['adjacency'][0])
+#         with torch.no_grad():
+        preds, waypoint_preds, all_dist_params, attention, adjacency, gan_features, graph_output = model(**input_dict)
+        adjacency.retain_grad()
+#         optimizer.zero_grad()
+        loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
+        loss.backward(retain_graph=True)
 
-    #         adjacency.retain_grad()
-    #         gan_features.retain_grad()
+#         assert adjacency.grad != None, "adjacency_grad is None"
+#         assert gan_features.grad != None, "gan_features_grad is None"
 
+#         optimizer.step()
 
-            loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
-#             loss.backward(retain_graph=True)
-
-    #         assert adjacency.grad != None, "adjacency_grad is None"
-    #         assert gan_features.grad != None, "gan_features_grad is None"
-
-            optimizer.zero_grad()
-            optimizer.step()
-
-    #         adjacency_grad = adjacency * adjacency.grad
-    #         feature_grad = torch.sum(gan_features.grad * gan_features, axis=3).squeeze(-1)
-            get_metric(metrics, ade, fde, mr, loss, len(input_dict["adjacency"]))
-
-#         #  sanity check
-#         conv_weight = model.decoder.xy_conv_filters[0].weight
-#         last_weight = model.decoder.value_generator.weight
-#         assert torch.all(conv_weight == conv_weight_origin) and torch.all(last_weight == last_weight_origin), ("Model is Changed",conv_weight,conv_weight_origin,last_weight,last_weight_origin,)
-        
-#         if parser.adjacency_exp:
-#             optimizer.zero_grad()
-#             input_dict["adjacency"] = softmax(adjacency_grad) * len(adjacency_grad)
-#             preds, waypoint_preds, _, _, _, _, _ = model(**input_dict)
-#             loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
-#             get_metric(adjacency_exp, ade, fde, mr, loss,len(adjacency_grad))
-#             loss.backward()
-#             optimizer.step()
-            
-#         adjacency.detach()
-#         gan_features.detach()
-        
+        get_metric(metrics, ade, fde, mr, loss, len(input_dict["adjacency"]))
 
             
     if parser.remove_high_related_score:
@@ -264,10 +241,26 @@ for epoch_id in range(10):
     }
     print(write_json)
     break
+
+
+# +
+def func(a,b,c,d):
+    with torch.backends.cudnn.flags(enabled=False):
+        preds, waypoint_preds, all_dist_params, attention, adjacency, gan_features, graph_output = model(a, b, c, d, ifc_helpers = input_dict["ifc_helpers"])
+        loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
+        loss = loss.cpu()
+        print(loss)
+        return loss
+    
+torch.autograd.functional.hessian(func,tuple([input_dict["agent_features"], input_dict["social_features"], input_dict["adjacency"],
+                                                                                   input_dict["num_agent_mask"]]))
 # -
 
 
-input_dict["adjacency"]
+
+model.encoder.xy_conv_filters[0].weight.grad
+
+input_dict["adjacency"].shape
 
 input_dict["adjacency"]
 

@@ -80,7 +80,7 @@ test_dataset = DataLoader(test_loader, batch_size=parser.batch_size, num_workers
 
 
 model = WIMP(parser)
-model.load_state_dict(torch.load("experiments/example/checkpoints/epoch=122.ckpt")['state_dict'], strict=False) # 학습할 때에는 graph 모듈에서 p에 해당하는 network가 없었으므로
+model.load_state_dict(torch.load("experiments/example_old/checkpoints/epoch=122.ckpt")['state_dict'], strict=False) # 학습할 때에는 graph 모듈에서 p에 해당하는 network가 없었으므로
 # model =nn.parallel.DataParallel(model)
 
 model = model.cuda()
@@ -177,6 +177,10 @@ def calc_mean(metric):
     }
 
 
+# -
+
+adjacency.grad
+
 # +
 import pickle
 
@@ -228,20 +232,45 @@ for dataset in [val_dataset, train_dataset]:
         adjacency_grad = adjacency * adjacency.grad
         feature_grad = torch.sum(gan_features.grad * gan_features, axis=3).squeeze(-1)
 
-#         for ii in range(len(input_dict['ifc_helpers']['file_path'])):
-#             load_path = input_dict['ifc_helpers']['file_path'][ii]
-#             save_path = input_dict['ifc_helpers']['file_path'][ii].replace("argoverse_processed_simple", "argoverse_with_LRP")
+        for ii in range(len(input_dict['ifc_helpers']['file_path'])):
+            load_path = input_dict['ifc_helpers']['file_path'][ii]
+            save_path = input_dict['ifc_helpers']['file_path'][ii].replace("argoverse_processed_simple", "argoverse_with_LRP")
 
-#             with open(load_path, 'rb') as f:
-#                 d = pickle.load(f)
-#             d['ADJACENCY'] = adjacency_grad[ii].cpu().detach().tolist()
-#             with open(save_path, "wb") as f:
-#                 pickle.dump(d, f)
+            with open(load_path, 'rb') as f:
+                d = pickle.load(f)
+            length = int(sum(input_dict["num_agent_mask"][ii]))
+            pad_num = len(d['SOCIAL'])+1 - length
+            zero_pasdding =  nn.ZeroPad2d((0,pad_num,0,pad_num))
+
+            d['ADJACENCY'] = zero_pasdding(adjacency_grad[ii][:length, :length]).cpu().detach().tolist()
+            with open(save_path, "wb") as f:
+                pickle.dump(d, f)
 
 # -
 
 
-with open(save_path, "rb") as f:
+with open(save_path, 'rb') as f:
     d = pickle.load(f)
 
-d
+zero_pasdding =  nn.ZeroPad2d((0,2,0,2))
+adjacency_grad[ii].shape
+zero_pasdding(adjacency_grad[ii]).shape
+
+input_dict["social_features"][0][11]
+
+int(sum(input_dict["num_agent_mask"][0]))
+
+# +
+
+with open(input_dict["ifc_helpers"]["file_path"][0].replace("argoverse_processed_simple", "argoverse_with_LRP"), "rb") as f:
+    d = pickle.load(f)
+len(d['SOCIAL']), len(d['TE'])#, len(d['ADJACENCY'])
+# -
+
+len(d['SOCIAL'])+1, len(d['TE']), len(d['ADJACENCY'])
+
+d.keys()
+
+d["SOCIAL"][0].keys()
+
+input_dict["social_label_features"].shape

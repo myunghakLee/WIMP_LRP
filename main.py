@@ -78,6 +78,8 @@ def add_experimental_args(parent_parser):
 
     parser.add_argument('--is_LRP', type=bool, default = False)
     
+    parser.add_argument('--use_LRP_adjacency', type=bool, default = False)
+    
     return parser
 
 

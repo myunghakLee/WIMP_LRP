@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # +
 import numpy as np
 import os
@@ -268,7 +269,7 @@ class ArgoverseDataset(Dataset):
         if 'ADJACENCY' not in data:
             adjacency = example['adjacency'].astype(np.float32)
         else:
-            adjacency = np.array([example['adjacency'] for _ in range(20)]).astype(np.float32)
+            adjacency = np.array(example['adjacency']).astype(np.float32)
             
         # Get labels
         agent_labels = example['agent_xy_labels' + self.delta_str].astype(np.float32)
@@ -291,16 +292,15 @@ class ArgoverseDataset(Dataset):
         ifc_helpers['csv_file'] = data['PATH'].split('/')[-1]
         ifc_helpers['file_path'] = example['file_path']
         
-
         if self.delta:
             ifc_helpers['agent_xy_delta'] = example['agent_xy_ref_end'].astype(np.float32)
             ifc_helpers['social_xy_delta'] = example['social_xy_ref_end'].astype(np.float32)
 
         input_dict = {'agent_features': agent_features,
-                      'ifc_helpers': ifc_helpers,
+                      'ifc_helpers': ifc_helpers, 
                       'social_features': social_features,
                       'social_label_features': social_label_features,
-                      'adjacency': adjacency,
+                      'adjacency': adjacency[:num_social_agents+1, :num_social_agents+1],
                       'label_adjacency': label_adjacency,
                       'num_agent_mask': num_agent_mask,
                       }
@@ -424,8 +424,13 @@ class ArgoverseDataset(Dataset):
                                 else:
                                     padded_elem = torch.nn.functional.pad(elem, (0, num_pad))
                             else:
-                                num_pad = max_actors - elem.size(1) + 1
-                                padded_elem = torch.nn.functional.pad(elem, (0, num_pad, 0, num_pad, 0, 0))
+                                try: # adjacency가 LRP로부터 나온 경우 shape가 다름
+                                    num_pad = max_actors - elem.size(1) + 1
+                                    padded_elem = torch.nn.functional.pad(elem, (0, num_pad, 0, num_pad, 0, 0))
+                                except:
+                                    num_pad = max_actors - elem.size(0) + 1
+                                    padded_elem = torch.nn.functional.pad(elem, (0,num_pad, 0,num_pad))
+
                             value[index] = padded_elem
                         batch_dict[key] = torch.stack(value)
                     else:

@@ -87,7 +87,8 @@ class WIMP(pl.LightningModule):
         self.slicing = lambda a, idx: torch.cat((a[:, :idx], a[:, idx+1:]), axis=1)
         
         self.json_data = []
-
+        self.softmax = torch.nn.Softmax(dim=2)
+        
     def forward(self, agent_features, social_features, adjacency, num_agent_mask, outsteps=30,
                 social_label_features=None, label_adjacency=None, classmate_forcing=True,
                 labels=None, ifc_helpers=None, test=False, map_estimate=False,
@@ -116,7 +117,7 @@ class WIMP(pl.LightningModule):
     #         adjacency.retain_grad()  # backpropagation시 gradient 쌓이게 하기 위해서 추가해줌
 
             adjacency = adjacency * num_agent_mask.unsqueeze(1) * num_agent_mask.unsqueeze(2)
-
+        
         graph_output, att_weights = self.gat(gan_features, adjacency)  # att_weights는 LRP하고는 연관이 없음, 모델에서 생각하고 있는 attention
 #         att_weights.requires_grad = True
 #         att_weights.retain_grad()
@@ -142,11 +143,13 @@ class WIMP(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         # Compute predictions
         input_dict, target_dict = batch
-        preds, waypoint_preds, all_dist_params, _, adjacency, _ = self(**input_dict)
+        input_dict['adjacency'] = self.softmax(input_dict["adjacency"]) * len(input_dict['adjacency'][0])
+        preds, waypoint_preds, all_dist_params, _, adjacency, _, _ = self(**input_dict)
         # Compute loss and metrics
         loss, metrics = self.eval_preds(preds, target_dict, waypoint_preds)
         agent_mean_ade, agent_mean_fde, agent_mean_mr = metrics
-#         adjacency.retain_grad()
+        
+        
         pl.TrainResult(loss)
 
         # Log results from training step
@@ -160,7 +163,11 @@ class WIMP(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         # Compute predictions
         input_dict, target_dict = batch
-        preds, waypoint_preds, all_dist_params, _, adjacency, _ = self(**input_dict)
+        print(input_dict['adjacency'].shape)
+        input_dict['adjacency'] = self.softmax(input_dict["adjacency"]) * len(input_dict['adjacency'][0])
+        print(input_dict['adjacency'].shape)
+
+        preds, waypoint_preds, all_dist_params, _, adjacency, _, _ = self(**input_dict)
 
         # Compute loss and metrics
         loss, metrics = self.eval_preds(preds, target_dict, waypoint_preds)
@@ -178,7 +185,7 @@ class WIMP(pl.LightningModule):
         # Compute predictions
         result = pl.EvalResult()
         input_dict, target_dict = batch
-        preds, waypoint_preds, all_dist_params, attention, adjacency, _ = self(**input_dict)
+        preds, waypoint_preds, all_dist_params, attention, adjacency, _, _ = self(**input_dict)
         loss, (agent_mean_ade, agent_mean_fde, agent_mean_mr) = self.eval_preds(preds, target_dict, waypoint_preds)
         
         if self.hparams.is_valid:
