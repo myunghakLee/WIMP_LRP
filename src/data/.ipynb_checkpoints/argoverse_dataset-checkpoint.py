@@ -1,3 +1,4 @@
+# +
 import numpy as np
 import os
 import pickle
@@ -282,6 +283,7 @@ class ArgoverseDataset(Dataset):
         ifc_helpers['city'] = example['city']
         ifc_helpers['idx'] = example['seq_id']
         ifc_helpers['csv_file'] = data['PATH'].split('/')[-1]
+        ifc_helpers['file_path'] = example['file_path']
 
 
         if self.delta:
@@ -294,7 +296,7 @@ class ArgoverseDataset(Dataset):
                       'social_label_features': social_label_features,
                       'adjacency': adjacency,
                       'label_adjacency': label_adjacency,
-                      'num_agent_mask': num_agent_mask
+                      'num_agent_mask': num_agent_mask,
                       }
 
         if self.mode != 'test':
@@ -506,3 +508,4 @@ class ArgoverseDataset(Dataset):
         batch[0] = pad_batch(batch[0], max_actors)
         batch[1] = pad_batch(batch[1], max_actors)
         return batch
+

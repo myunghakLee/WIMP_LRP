@@ -109,18 +109,17 @@ class WIMP(pl.LightningModule):
                                          1, -1)
 #             if gan_features.requires_grad:
 #                 gan_features.retain_grad()
+        if len(adjacency.shape) == 4:
+            adjacency = torch.ones(gan_features.size(1), gan_features.size(1)).to(
+                gan_features.get_device()).float().unsqueeze(0).repeat(gan_features.size(0), 1, 1)
+            adjacency.requires_grad = True  # backpropagation시 gradient 쌓이게 하기 위해서 추가해줌 
+    #         adjacency.retain_grad()  # backpropagation시 gradient 쌓이게 하기 위해서 추가해줌
 
-        adjacency = torch.ones(gan_features.size(1), gan_features.size(1)).to(
-            gan_features.get_device()).float().unsqueeze(0).repeat(gan_features.size(0), 1, 1)
-        adjacency.requires_grad = True  # backpropagation시 gradient 쌓이게 하기 위해서 추가해줌 
-#         adjacency.retain_grad()  # backpropagation시 gradient 쌓이게 하기 위해서 추가해줌
-
-        adjacency = adjacency * num_agent_mask.unsqueeze(1) * num_agent_mask.unsqueeze(2)
+            adjacency = adjacency * num_agent_mask.unsqueeze(1) * num_agent_mask.unsqueeze(2)
 
         graph_output, att_weights = self.gat(gan_features, adjacency)  # att_weights는 LRP하고는 연관이 없음, 모델에서 생각하고 있는 attention
 #         att_weights.requires_grad = True
 #         att_weights.retain_grad()
-
         graph_output = graph_output.narrow(1, 0, 1).squeeze(1)
         if self.hparams.batch_norm:
             graph_output = self.encoding_bn(graph_output.transpose(1, 2).contiguous())
@@ -138,7 +137,7 @@ class WIMP(pl.LightningModule):
             last_n_predictions.append(agent_features.narrow(dim=1, start=agent_features.size(1)-i, length=i))
         prediction_tensor, waypoints_prediction_tensor, prediction_stats = self.decoder(decoder_input_features, last_n_predictions, hidden_decoder, outsteps, ifc_helpers=ifc_helpers, sample_next=sample_next, map_estimate=map_estimate)
 
-        return prediction_tensor, [waypoints_prediction_tensor, waypoint_predictions_tensor_encoder], prediction_stats, att_weights, adjacency, gan_features
+        return prediction_tensor, [waypoints_prediction_tensor, waypoint_predictions_tensor_encoder], prediction_stats, att_weights, adjacency, gan_features, graph_output
 
     def training_step(self, batch, batch_idx):
         # Compute predictions

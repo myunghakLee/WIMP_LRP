@@ -76,6 +76,8 @@ def add_experimental_args(parent_parser):
     # Logging Params
     parser.add_argument('--experiment-name', type=str, help='Save file prefix')
 
+    parser.add_argument('--is_LRP', type=bool, default = False)
+    
     return parser
 
 
