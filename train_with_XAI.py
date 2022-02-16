@@ -29,9 +29,8 @@ import random
 os.environ["CUDA_VISIBLE_DEVICES"]= "1"
 
 # +
-
-args = {"IFC":True, "add_centerline":False, "attention_heads":4, "batch_norm":False, "batch_size":25, "check_val_every_n_epoch":3, 
-          "dataroot":'./data/argoverse_processed_simple', "dataset":'argoverse', "distributed_backend":'ddp', "dropout":0.0, 
+args = {"IFC":True, "add_centerline":False, "attention_heads":4, "batch_norm":False, "batch_size":100, "check_val_every_n_epoch":3, 
+          "dataroot":'./data/argoverse_with_LRP', "dataset":'argoverse', "distributed_backend":'ddp', "dropout":0.0, 
           "early_stop_threshold":5, "experiment_name":'example', "gpus":3, "gradient_clipping":True, "graph_iter":1, 
           "hidden_dim":512, "hidden_key_generator":True, "hidden_transform":False, "input_dim":2, "k_value_threshold":10, 
           "k_values":[6, 5, 4, 3, 2, 1], "lr":0.0001, "map_features":False, "max_epochs":200, "mode":'train', "model_name":'WIMP', 
@@ -52,11 +51,13 @@ for k in args:
 parser.add_argument("--XAI_lambda", default = 0.2, type= float)
 parser.add_argument("--name", default = "", type=str)
 
-try:  # terminal
-    parser = parser.parse_args()
-except:  # Jupyter notebook
-    parser = parser.parse_args(args=[])
+# try:  # terminal
+#     parser = parser.parse_args()
+# except:  # Jupyter notebook
+parser = parser.parse_args(args=[])
 
+
+# +
 
 train_loader = ArgoverseDataset(parser.dataroot, mode='train', delta=parser.predict_delta,
                               map_features_flag=parser.map_features,
@@ -145,10 +146,15 @@ abs_max = lambda weight, k: torch.topk(abs(weight)[1:], k+1).indices[k].item()
 simple_min = lambda weight, k: torch.topk(weight[1:], k+1, largest = False).indices[k].item()
 simple_max = lambda weight, k: torch.topk(weight[1:], k+1).indices[k].item()
 
-
 # +
 softmax = torch.nn.Softmax(dim=2)
 
+def normalize_max1(w):
+    for i in range(len(w)):
+        w[i] = w[i] / torch.max(abs(w[i]))
+    return w
+
+normalize = lambda w: w / torch.sum(w)
 def calc_mean(metric):
     metric["fde"] /= metric["length"]
     metric["ade"] /= metric["length"]
@@ -164,17 +170,13 @@ def calc_mean(metric):
 
 
 # +
-for batch_idx, batch in enumerate(tqdm(val_dataset)):
-    input_dict, target_dict = batch[0], batch[1]
-    input_dict["adjacency"] = softmax(input_dict["adjacency"]) * len(input_dict['adjacency'][0])
-    print(input_dict['adjacency'].shape)
-    
-#     print(softmax(input_dict['adjacency'][:, 0, :, :]) * len(input_dict['adjacency'][0][0]))
-    break
+# for batch_idx, batch in enumerate(tqdm(val_dataset)):
+#     input_dict, target_dict = batch[0], batch[1]
+#     break
 
 # +
 
-for epoch_id in range(10):
+for epoch_id in range(1):
     torch.manual_seed(0)
     torch.cuda.manual_seed(0)
     torch.cuda.manual_seed_all(0)
@@ -210,21 +212,19 @@ for epoch_id in range(10):
         input_dict["ifc_helpers"]["agent_oracle_centerline"] = input_dict["ifc_helpers"]["agent_oracle_centerline"].cuda()
         
         target_dict["agent_labels"] = target_dict["agent_labels"].cuda()
-        
-        input_dict["adjacency"] = softmax(input_dict["adjacency"]) * len(input_dict['adjacency'][0])
-#         with torch.no_grad():
-        preds, waypoint_preds, all_dist_params, attention, adjacency, gan_features, graph_output = model(**input_dict)
-        adjacency.retain_grad()
-#         optimizer.zero_grad()
-        loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
-        loss.backward(retain_graph=True)
+        input_dict["adjacency"] = (softmax(normalize_max1(abs(input_dict["adjacency"])) * 2) * len(input_dict['adjacency'][0]))
+                
+        with torch.no_grad():
+            preds, waypoint_preds, all_dist_params, attention, adjacency, gan_features, graph_output = model(**input_dict)
+            loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
+    #         loss.backward()
+    #         print(adjacency.grad)
+    #         assert adjacency.grad != None, "adjacency_grad is None"
+    #         assert gan_features.grad != None, "gan_features_grad is None"
 
-#         assert adjacency.grad != None, "adjacency_grad is None"
-#         assert gan_features.grad != None, "gan_features_grad is None"
+    #         optimizer.step()
 
-#         optimizer.step()
-
-        get_metric(metrics, ade, fde, mr, loss, len(input_dict["adjacency"]))
+            get_metric(metrics, ade, fde, mr, loss, len(input_dict["adjacency"]))
 
             
     if parser.remove_high_related_score:
@@ -241,6 +241,23 @@ for epoch_id in range(10):
     }
     print(write_json)
     break
+# -
+
+# * 5
+with_abs = {'adjacency_exp': {'fde': 1.1731029413081782, 'ade': 0.7683577373243315, 'loss': 6.154412361983109, 'mr': 0.12008512168699882}, 'XAI_lambda': 0.2}
+not_abs   = {'adjacency_exp': {'fde': 1.1864584436482344, 'ade': 0.7731951855434113, 'loss': 6.19484556064366, 'mr': 0.12221321253386112}, 'XAI_lambda': 0.2}
+
+# * 2
+with_abs = {'adjacency_exp': {'fde': 1.1743766841107552, 'ade': 0.7683680386112246, 'loss': 6.158736481374703, 'mr': 0.1202624623573498}, 'XAI_lambda': 0.2}
+not_abs   = {'adjacency_exp': {'fde': 1.1801205000318784, 'ade': 0.7704535153021347, 'loss': 6.1778480520507415, 'mr': 0.12081981967661996}, 'XAI_lambda': 0.2}
+
+# **2
+with_abs = {'adjacency_exp': {'fde': 1.1743739268825177, 'ade': 0.7683675679592261, 'loss': 6.158735879094774, 'mr': 0.1202624623573498}, 'XAI_lambda': 0.2}
+not_abs   = {'adjacency_exp': {'fde': 1.1801190559903667, 'ade': 0.7704613011618785, 'loss': 6.177847673209708, 'mr': 0.12081981967661996}, 'XAI_lambda': 0.2}
+
+
+with_abs = {'adjacency_exp': {'fde': 1.1742021508868232, 'ade': 0.7685741424367261, 'loss': 6.160870625898332, 'mr': 0.12005978729689126}, 'XAI_lambda': 0.2}
+not_abs =   {'adjacency_exp': {'fde': 1.1773426102683473, 'ade': 0.7695322885269765, 'loss': 6.172085775553962, 'mr': 0.12003445281014058}, 'XAI_lambda': 0.2}
 
 
 # +
@@ -251,14 +268,25 @@ def func(a,b,c,d):
         loss = loss.cpu()
         print(loss)
         return loss
-    
+
 torch.autograd.functional.hessian(func,tuple([input_dict["agent_features"], input_dict["social_features"], input_dict["adjacency"],
                                                                                    input_dict["num_agent_mask"]]))
 # -
+w = torch.tensor([-5,3,1])
+torch.max(abs(w))
 
 
+[i+1 for i in range(len(w.size())-1)]
 
-model.encoder.xy_conv_filters[0].weight.grad
+# +
+for batch_idx, batch in enumerate(tqdm(val_dataset)):
+    input_dict, target_dict = batch[0], batch[1]
+    input_dict["adjacency"] = softmax(input_dict["adjacency"]) * len(input_dict['adjacency'][0])
+    print(input_dict['adjacency'].shape)
+    
+#     print(softmax(input_dict['adjacency'][:, 0, :, :]) * len(input_dict['adjacency'][0][0]))
+    break
+# -
 
 input_dict["adjacency"].shape
 

@@ -15,8 +15,6 @@ from torch.utils.data import DataLoader, Dataset
 import torch.nn.functional as F
 import torch.nn as nn
 import torch
-
-
 from src.data.argoverse_datamodule import ArgoverseDataModule
 from src.data.argoverse_dataset import ArgoverseDataset
 from src.data.dummy_datamodule import DummyDataModule
@@ -209,7 +207,7 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
 
         input_dict, target_dict = batch[0], batch[1]
 
-        # get cuda
+        # get cuda 
         input_dict["agent_features"] = input_dict["agent_features"].cuda()
         input_dict["social_features"] = input_dict["social_features"].cuda()
         input_dict["social_label_features"] = input_dict["social_label_features"].cuda()
@@ -228,10 +226,13 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
         adjacency.retain_grad()
         gan_features.retain_grad()
         graph_output.retain_grad()
-            
+        input_dict["social_features"].retain_grad()
         
         loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
         loss.backward()
+
+        input_dict["social_features"].grad
+        print(input_dict["social_features"].grad)
 
         # grad 없을수도 있수도 있어서 
         assert adjacency.grad != None, "adjacency_grad is None"
@@ -244,7 +245,7 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
         get_metric(adjacency_exp, ade, fde, mr, loss,len(adjacency_grad)) 
         
         if parser.remove_high_related_score:
-            
+    
             with torch.no_grad():
                 
                 for i in range(parser.maximum_delete_num):  # 하나씩 지우자
@@ -269,9 +270,7 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
                             input_dict["social_features"][idx] = slicing_2Dpadding(input_dict["social_features"][idx], arg) #  agent 지움
                             input_dict["ifc_helpers"]["social_oracle_centerline"][idx] = slicing_2Dpadding(input_dict["ifc_helpers"]["social_oracle_centerline"][idx], arg)
                             input_dict["ifc_helpers"]["social_oracle_centerline_lengths"][idx] = slicing_2Dpadding(input_dict["ifc_helpers"]["social_oracle_centerline_lengths"][idx],arg,)
-
-                            
-                    
+    
                     preds_,waypoint_preds_,_,_,_,_,_= model(**input_dict)
 
                     loss, (ade, fde, mr) = model.eval_preds(preds_, target_dict, waypoint_preds_)
@@ -280,9 +279,11 @@ for name_idx, function in enumerate([abs_min, abs_max, simple_min, simple_max]):
                     if parser.save_json:
                         write_dict = copy.deepcopy([metric_to_dict(preds_[j], waypoint_preds_, input_dict, target_dict, attention,j, adjacency_grad[j][0]) for j in range(len(preds))])
                         write_json_delete[name_idx][i] += write_dict
+                
 
         adjacency.detach()
         gan_features.detach()
+
         break 
 
     def calc_mean(metric):

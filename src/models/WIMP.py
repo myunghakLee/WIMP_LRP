@@ -163,9 +163,7 @@ class WIMP(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         # Compute predictions
         input_dict, target_dict = batch
-        print(input_dict['adjacency'].shape)
         input_dict['adjacency'] = self.softmax(input_dict["adjacency"]) * len(input_dict['adjacency'][0])
-        print(input_dict['adjacency'].shape)
 
         preds, waypoint_preds, all_dist_params, _, adjacency, _, _ = self(**input_dict)
 

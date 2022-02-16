@@ -295,15 +295,26 @@ class ArgoverseDataset(Dataset):
         if self.delta:
             ifc_helpers['agent_xy_delta'] = example['agent_xy_ref_end'].astype(np.float32)
             ifc_helpers['social_xy_delta'] = example['social_xy_ref_end'].astype(np.float32)
+        
+        if 'ADJACENCY' not in data:
+            input_dict = {'agent_features': agent_features,
+                          'ifc_helpers': ifc_helpers, 
+                          'social_features': social_features,
+                          'social_label_features': social_label_features,
+                          'adjacency': adjacency,
+                          'label_adjacency': label_adjacency,
+                          'num_agent_mask': num_agent_mask,
+                          }
 
-        input_dict = {'agent_features': agent_features,
-                      'ifc_helpers': ifc_helpers, 
-                      'social_features': social_features,
-                      'social_label_features': social_label_features,
-                      'adjacency': adjacency[:num_social_agents+1, :num_social_agents+1],
-                      'label_adjacency': label_adjacency,
-                      'num_agent_mask': num_agent_mask,
-                      }
+        else:
+            input_dict = {'agent_features': agent_features,
+                          'ifc_helpers': ifc_helpers, 
+                          'social_features': social_features,
+                          'social_label_features': social_label_features,
+                          'adjacency': adjacency[:num_social_agents+1, :num_social_agents+1],
+                          'label_adjacency': label_adjacency,
+                          'num_agent_mask': num_agent_mask,
+                          }
 
         if self.mode != 'test':
             target_dict = {'agent_labels': agent_labels,
