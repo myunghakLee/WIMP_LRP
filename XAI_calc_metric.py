@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 
 from matplotlib import pyplot as plt
 from tqdm import tqdm
@@ -36,10 +37,11 @@ parser = ArgumentParser()
 
 # + endofcell="--"
 def draw(agent_features, social_features, preds, city_name, rotation, translation, social_nums = None ,weight = None, gt = None,
-             draw_future = True, figsize = (8,8), save_fig = False, save_name = None, plot_name = None, plt = None, xyrange = None):
+             draw_future = True, figsize = (8,8), save_fig = False, save_name = None, plot_name = None, plt = None, xyrange = None, max_weight = None):
     
-
-    max_weight = max(np.max(abs(weight)), 0.000001)
+    
+    if not max_weight:
+        max_weight = max(np.max(abs(weight)), 0.000001)
     weight /= max_weight
     
     if plot_name:

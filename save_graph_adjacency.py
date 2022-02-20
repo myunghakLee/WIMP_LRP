@@ -42,7 +42,7 @@ parser = ArgumentParser()
 
 for k in args:
     parser.add_argument(str("--" + k), default = args[k], type= type(args[k]))
-parser.add_argument("--XAI_lambda", default = 0.2, type= float)
+parser.add_argument("--XAI_lambda", default = 0.0, type= float)
 parser.add_argument("--name", default = "", type=str)
 
 try:  # terminal
@@ -177,10 +177,6 @@ def calc_mean(metric):
     }
 
 
-# -
-
-adjacency.grad
-
 # +
 import pickle
 
@@ -234,20 +230,29 @@ for dataset in [val_dataset, train_dataset]:
 
         for ii in range(len(input_dict['ifc_helpers']['file_path'])):
             load_path = input_dict['ifc_helpers']['file_path'][ii]
-            save_path = input_dict['ifc_helpers']['file_path'][ii].replace("argoverse_processed_simple", "argoverse_with_LRP")
+            save_path = input_dict['ifc_helpers']['file_path'][ii].replace("argoverse_processed_simple", "LRP_adjacency3")
 
             with open(load_path, 'rb') as f:
                 d = pickle.load(f)
             length = int(sum(input_dict["num_agent_mask"][ii]))
             pad_num = len(d['SOCIAL'])+1 - length
-            zero_pasdding =  nn.ZeroPad2d((0,pad_num,0,pad_num))
+#             zero_pasdding =  nn.ZeroPad2d((0,pad_num,0,pad_num))
+            zero_pasdding =  nn.ZeroPad2d((0,pad_num,0,pad_num+length-1))
 
-            d['ADJACENCY'] = zero_pasdding(adjacency_grad[ii][:length, :length]).cpu().detach().tolist()
+            d['ADJACENCY'] = zero_pasdding(feature_grad[ii][:length].unsqueeze(0)).cpu().detach().tolist()
             with open(save_path, "wb") as f:
                 pickle.dump(d, f)
 
 # -
 
+
+save_path
+
+feature_grad.shape[ii]
+
+feature_grad[ii][:length].unsqueeze(-1).shape
+
+zero_pasdding(feature_grad[ii][:length].unsqueeze(0))
 
 with open(save_path, 'rb') as f:
     d = pickle.load(f)

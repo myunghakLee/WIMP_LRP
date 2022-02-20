@@ -113,12 +113,13 @@ class WIMP(pl.LightningModule):
         if len(adjacency.shape) == 4:
             adjacency = torch.ones(gan_features.size(1), gan_features.size(1)).to(
                 gan_features.get_device()).float().unsqueeze(0).repeat(gan_features.size(0), 1, 1)
+            adjacency.requires_grad = True  # backpropagation시 gradient 쌓이게 하기 위해서 추가해줌 
     #         adjacency.retain_grad()  # backpropagation시 gradient 쌓이게 하기 위해서 추가해줌
 
-        adjacency.requires_grad = True  # backpropagation시 gradient 쌓이게 하기 위해서 추가해줌 
-        adjacency = adjacency * num_agent_mask.unsqueeze(1) * num_agent_mask.unsqueeze(2)
+            adjacency = adjacency * num_agent_mask.unsqueeze(1) * num_agent_mask.unsqueeze(2)
         
         graph_output, att_weights = self.gat(gan_features, adjacency)  # att_weights는 LRP하고는 연관이 없음, 모델에서 생각하고 있는 attention
+        graph_output_s = graph_output
 #         att_weights.requires_grad = True
 #         att_weights.retain_grad()
         graph_output = graph_output.narrow(1, 0, 1).squeeze(1)
@@ -138,129 +139,9 @@ class WIMP(pl.LightningModule):
             last_n_predictions.append(agent_features.narrow(dim=1, start=agent_features.size(1)-i, length=i))
         prediction_tensor, waypoints_prediction_tensor, prediction_stats = self.decoder(decoder_input_features, last_n_predictions, hidden_decoder, outsteps, ifc_helpers=ifc_helpers, sample_next=sample_next, map_estimate=map_estimate)
 
-        return prediction_tensor, [waypoints_prediction_tensor, waypoint_predictions_tensor_encoder], prediction_stats, att_weights, adjacency, gan_features, graph_output
-
-    def training_step(self, batch, batch_idx):
-        # Compute predictions
-        input_dict, target_dict = batch
-        input_dict['adjacency'] = self.softmax(input_dict["adjacency"]) * len(input_dict['adjacency'][0])
-        preds, waypoint_preds, all_dist_params, _, adjacency, _, _ = self(**input_dict)
-        # Compute loss and metrics
-        loss, metrics = self.eval_preds(preds, target_dict, waypoint_preds)
-        agent_mean_ade, agent_mean_fde, agent_mean_mr = metrics
-        
-        
-        pl.TrainResult(loss)
-
-        # Log results from training step
-        result = pl.TrainResult(loss)
-        result.log('train/loss', loss, on_epoch=True, sync_dist=True)
-        result.log('train/ade', agent_mean_ade, on_epoch=True, sync_dist=True)
-        result.log('train/fde', agent_mean_fde, on_epoch=True, sync_dist=True)
-        result.log('train/mr', agent_mean_mr, on_epoch=True, sync_dist=True)
-        return result
-
-    def validation_step(self, batch, batch_idx):
-        # Compute predictions
-        input_dict, target_dict = batch
-        input_dict['adjacency'] = self.softmax(input_dict["adjacency"]) * len(input_dict['adjacency'][0])
-
-        preds, waypoint_preds, all_dist_params, _, adjacency, _, _ = self(**input_dict)
-
-        # Compute loss and metrics
-        loss, metrics = self.eval_preds(preds, target_dict, waypoint_preds)
-        agent_mean_ade, agent_mean_fde, agent_mean_mr = metrics
-
-        # Log results from validation step
-        result = pl.EvalResult(checkpoint_on=loss, early_stop_on=loss)
-        result.log('val/loss', loss, on_epoch=True, sync_dist=True)
-        result.log('val/ade', agent_mean_ade, on_epoch=True, sync_dist=True)
-        result.log('val/fde', agent_mean_fde, on_epoch=True, sync_dist=True)
-        result.log('val/mr', agent_mean_mr, on_epoch=True, sync_dist=True)
-        return result
-    
-    def test_step(self, batch, batch_idx):
-        # Compute predictions
-        result = pl.EvalResult()
-        input_dict, target_dict = batch
-        preds, waypoint_preds, all_dist_params, attention, adjacency, _, _ = self(**input_dict)
-        loss, (agent_mean_ade, agent_mean_fde, agent_mean_mr) = self.eval_preds(preds, target_dict, waypoint_preds)
-        
-        if self.hparams.is_valid:
-            
-            result.log('loss/test_all', loss)
-            result.log('ade/test_all', agent_mean_ade)
-            result.log('fde/test_all', agent_mean_fde)
-            result.log('mr/test_all', agent_mean_mr)
+        return prediction_tensor, [waypoints_prediction_tensor, waypoint_predictions_tensor_encoder], prediction_stats, att_weights, adjacency, gan_features, graph_output, graph_output_s
 
 
-            if False:            
-                for idx in range(len(input_dict["social_features"][0])):
-                    preds, waypoint_preds, all_dist_params, att_weights, adjacency, _ = self(input_dict["agent_features"],
-                                                self.slicing(input_dict["social_features"], idx),
-                                                None,
-                                                self.slicing(input_dict["num_agent_mask"], idx),
-                                                ifc_helpers ={
-                                                    "social_oracle_centerline": self.slicing(input_dict["ifc_helpers"]['social_oracle_centerline'], idx), 
-                                                    "social_oracle_centerline_lengths": self.slicing(input_dict["ifc_helpers"]['social_oracle_centerline_lengths'], idx),
-                                                    "agent_oracle_centerline": input_dict["ifc_helpers"]["agent_oracle_centerline"],
-                                                    "agent_oracle_centerline_lengths": input_dict["ifc_helpers"]["agent_oracle_centerline_lengths"]
-                                                })
-                    loss, (agent_mean_ade, agent_mean_fde, agent_mean_mr) = self.eval_preds(preds, target_dict, waypoint_preds)
-                    result.log(f'loss/test_{str(idx).zfill(2)}', loss)
-                    result.log(f'ade/test_{str(idx).zfill(2)}', agent_mean_ade)
-                    result.log(f'fde/test_{str(idx).zfill(2)}', agent_mean_fde)
-                    result.log(f'mr/test_{str(idx).zfill(2)}', agent_mean_mr)
-
-      
-
-
-        if self.hparams.save_json:
-            for i, p in enumerate(preds):
-                write_dict = {}
-                write_dict['preds'] = p.tolist() 
-#                 write_dict['waypoint_preds'] = [waypoint_preds[0][i].tolist(), waypoint_preds[1][i].tolist()]
-                write_dict['rotation'] = input_dict['ifc_helpers']['rotation'][i].tolist()
-                write_dict['translation'] = input_dict['ifc_helpers']['translation'][i].tolist()
-                write_dict['csv_file'] = input_dict['ifc_helpers']['csv_file'][i]
-                write_dict['city'] = str(input_dict['ifc_helpers']['city'][i])
-                
-                
-#                 result.log('preds', p.tolist())
-# #                 result.log('waypoint_preds', agent_mean_ade)
-#                 result.log('rotation', input_dict['ifc_helpers']['rotation'][i].tolist())
-#                 result.log('translation', input_dict['ifc_helpers']['translation'][i].tolist())
-#                 result.log('csv_file', input_dict['ifc_helpers']['csv_file'][i])
-#                 result.log('city', str(input_dict['ifc_helpers']['city'][i]))
-                
-                write_dict['agent_labels'] = target_dict['agent_labels'][i].tolist()
-                write_dict['agent_features'] = input_dict['agent_features'][i].tolist()
-                write_dict['social_features'] = input_dict['social_features'][i].tolist()
-                write_dict['social_label_features'] = input_dict['social_label_features'][i].tolist()
-                if self.hparams.is_valid:
-                    write_dict['att_weights'] = att_weights[i].tolist()
-                    
-                with open(self.hparams.save_dir + "/" + str(input_dict['ifc_helpers']['idx'][i]) + '.json', 'w') as json_file:
-                    json.dump(write_dict, json_file, indent=4)
-                                                                                      
-        return result
-
-
-    def test_epoch_end(self, outputs):
-        result = pl.EvalResult()
-        if self.hparams.is_valid:
-            result_dict = {}
-            for k in outputs.keys():
-                if 'test' in k:
-                    result.log(k, torch.mean(outputs[k]).item())
-                    result_dict[k] = torch.mean(outputs[k]).item()
-                    
-#             print("save_json!!!!!!!!!!!!")
-#             with open(self.hparams.save_dir + "/" + "test_results.json", 'w') as json_file:
-#                 json.dump(self.json_data, json_file, indent=4)
-        # return outputs
-        return result
-        
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.weight_decay)
         scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=self.hparams.scheduler_step_size,
@@ -310,15 +191,15 @@ class WIMP(pl.LightningModule):
                                                        target_dict['agent_xy_ref_end'].unsqueeze(1))
                 labels_preds_denorm = self.denorm_delta(target_dict['agent_labels'].detach(),
                                                         target_dict['agent_xy_ref_end'].unsqueeze(1))
-                agent_mean_ade, agent_mean_fde, agent_mean_mr = compute_metrics(agent_preds_denorm, labels_preds_denorm)
+                agent_mean_ade, agent_mean_fde, agent_mean_mr = compute_metrics(agent_preds_denorm, labels_preds_denorm, mean=False)
             else:
                 if agent_preds.size(-1) == 2:
                     if agent_preds.size(1) > 6:
                         agent_mean_ade, agent_mean_fde, agent_mean_mr = compute_metrics(
-                            agent_preds.detach().narrow(1, 0, 6), target_dict['agent_labels'])
+                            agent_preds.detach().narrow(1, 0, 6), target_dict['agent_labels'], mean=False)
                     else:
                         agent_mean_ade, agent_mean_fde, agent_mean_mr = compute_metrics(
-                            agent_preds.detach(), target_dict['agent_labels'])
+                            agent_preds.detach(), target_dict['agent_labels'], mean=False)
                 else:
                     if agent_preds.size(1) > 6:
                         probs = agent_preds.detach().narrow(-1, self.hparams.output_dim, 1).squeeze(-1)
@@ -329,11 +210,11 @@ class WIMP(pl.LightningModule):
                             1, sorted_indices.unsqueeze(-1).unsqueeze(-1).expand(
                                 -1, -1, agent_preds.size(2), self.hparams.output_dim))
                         agent_mean_ade, agent_mean_fde, agent_mean_mr = compute_metrics(
-                            curr_preds, target_dict['agent_labels'])
+                            curr_preds, target_dict['agent_labels'], mean=False)
                     else:
                         agent_mean_ade, agent_mean_fde, agent_mean_mr = compute_metrics(
                             agent_preds.detach().narrow(-1, 0, self.hparams.output_dim),
-                            target_dict['agent_labels'])
+                            target_dict['agent_labels'], mean=False)
 
         return total_loss, (agent_mean_ade, agent_mean_fde, agent_mean_mr)
 

@@ -113,10 +113,10 @@ class WIMP(pl.LightningModule):
         if len(adjacency.shape) == 4:
             adjacency = torch.ones(gan_features.size(1), gan_features.size(1)).to(
                 gan_features.get_device()).float().unsqueeze(0).repeat(gan_features.size(0), 1, 1)
-            adjacency.requires_grad = True  # backpropagation시 gradient 쌓이게 하기 위해서 추가해줌 
     #         adjacency.retain_grad()  # backpropagation시 gradient 쌓이게 하기 위해서 추가해줌
 
-            adjacency = adjacency * num_agent_mask.unsqueeze(1) * num_agent_mask.unsqueeze(2)
+        adjacency.requires_grad = True  # backpropagation시 gradient 쌓이게 하기 위해서 추가해줌 
+        adjacency = adjacency * num_agent_mask.unsqueeze(1) * num_agent_mask.unsqueeze(2)
         
         graph_output, att_weights = self.gat(gan_features, adjacency)  # att_weights는 LRP하고는 연관이 없음, 모델에서 생각하고 있는 attention
 #         att_weights.requires_grad = True

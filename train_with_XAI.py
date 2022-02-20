@@ -30,7 +30,7 @@ os.environ["CUDA_VISIBLE_DEVICES"]= "1"
 
 # +
 args = {"IFC":True, "add_centerline":False, "attention_heads":4, "batch_norm":False, "batch_size":100, "check_val_every_n_epoch":3, 
-          "dataroot":'./data/argoverse_with_LRP', "dataset":'argoverse', "distributed_backend":'ddp', "dropout":0.0, 
+          "dataroot":'./data/LRP_adjacency3', "dataset":'argoverse', "distributed_backend":'ddp', "dropout":0.0, 
           "early_stop_threshold":5, "experiment_name":'example', "gpus":3, "gradient_clipping":True, "graph_iter":1, 
           "hidden_dim":512, "hidden_key_generator":True, "hidden_transform":False, "input_dim":2, "k_value_threshold":10, 
           "k_values":[6, 5, 4, 3, 2, 1], "lr":0.0001, "map_features":False, "max_epochs":200, "mode":'train', "model_name":'WIMP', 
@@ -69,10 +69,10 @@ val_loader = ArgoverseDataset(parser.dataroot, mode='val', delta=parser.predict_
                               social_features_flag=True, heuristic=(not parser.no_heuristic),
                               ifc=parser.IFC, is_oracle=parser.use_oracle)
 
-test_loader = ArgoverseDataset(parser.dataroot, mode='test', delta=parser.predict_delta,
-                              map_features_flag=parser.map_features,
-                              social_features_flag=True, heuristic=(not parser.no_heuristic),
-                              ifc=parser.IFC, is_oracle=parser.use_oracle)
+# test_loader = ArgoverseDataset(parser.dataroot, mode='test', delta=parser.predict_delta,
+#                               map_features_flag=parser.map_features,
+#                               social_features_flag=True, heuristic=(not parser.no_heuristic),
+#                               ifc=parser.IFC, is_oracle=parser.use_oracle)
 
 train_dataset = DataLoader(train_loader, batch_size=parser.batch_size, num_workers=parser.workers,
                                 pin_memory=True, collate_fn=ArgoverseDataset.collate,
@@ -82,9 +82,9 @@ val_dataset = DataLoader(val_loader, batch_size=parser.batch_size, num_workers=p
                                 pin_memory=True, collate_fn=ArgoverseDataset.collate,
                                 shuffle=False, drop_last=False)
 
-test_dataset = DataLoader(test_loader, batch_size=parser.batch_size, num_workers=parser.workers,
-                                pin_memory=True, collate_fn=ArgoverseDataset.collate,
-                                shuffle=False, drop_last=False)
+# test_dataset = DataLoader(test_loader, batch_size=parser.batch_size, num_workers=parser.workers,
+#                                 pin_memory=True, collate_fn=ArgoverseDataset.collate,
+#                                 shuffle=False, drop_last=False)
 
 
 model = WIMP(parser)
@@ -146,37 +146,540 @@ abs_max = lambda weight, k: torch.topk(abs(weight)[1:], k+1).indices[k].item()
 simple_min = lambda weight, k: torch.topk(weight[1:], k+1, largest = False).indices[k].item()
 simple_max = lambda weight, k: torch.topk(weight[1:], k+1).indices[k].item()
 
+
 # +
-softmax = torch.nn.Softmax(dim=2)
+def Test(dataset, f, f_idx=None):
+    torch.manual_seed(0)
+    torch.cuda.manual_seed(0)
+    torch.cuda.manual_seed_all(0)
+    np.random.seed(0)
+    cudnn.benchmark = False
+    cudnn.deterministic = True
+    random.seed(0)
+    torch.backends.cudnn.benchmark = False
 
-def normalize_max1(w):
-    for i in range(len(w)):
-        w[i] = w[i] / torch.max(abs(w[i]))
-    return w
-
-normalize = lambda w: w / torch.sum(w)
-def calc_mean(metric):
-    metric["fde"] /= metric["length"]
-    metric["ade"] /= metric["length"]
-    metric["mr"] /= metric["length"]
-    metric["loss"] /= metric["length"]
-    return {
-        "fde": metric["fde"],
-        "ade": metric["ade"],
-        "loss": metric["loss"],
-        "mr": metric["mr"]
+    metrics = {
+        "ade": 0.0,
+        "fde": 0.0,
+        "mr": 0.0,
+        "loss": 0.0,
+        "length": 0,
     }
+    
+    for batch_idx, batch in enumerate(tqdm(dataset)):
+        input_dict, target_dict = batch[0], batch[1]
 
+        # get cuda
+        input_dict["agent_features"] = input_dict["agent_features"].cuda()
+        input_dict["social_features"] = input_dict["social_features"].cuda()
+        input_dict["social_label_features"] = input_dict["social_label_features"].cuda()
+        input_dict["label_adjacency"] = input_dict["label_adjacency"].cuda()
+        input_dict["num_agent_mask"] = input_dict["num_agent_mask"].cuda()
+        input_dict["ifc_helpers"]["agent_oracle_centerline"] = input_dict["ifc_helpers"]["agent_oracle_centerline"].cuda()
+        input_dict["ifc_helpers"]["agent_oracle_centerline_lengths"] = input_dict["ifc_helpers"]["agent_oracle_centerline_lengths"].cuda()
+        input_dict["ifc_helpers"]["social_oracle_centerline"] = input_dict["ifc_helpers"]["social_oracle_centerline"].cuda()
+        input_dict["ifc_helpers"]["social_oracle_centerline_lengths"] = input_dict["ifc_helpers"]["social_oracle_centerline_lengths"].cuda()
+        input_dict["ifc_helpers"]["agent_oracle_centerline"] = input_dict["ifc_helpers"]["agent_oracle_centerline"].cuda()
+        input_dict["adjacency"] = input_dict["adjacency"].cuda()
+        
+        target_dict["agent_labels"] = target_dict["agent_labels"].cuda()
+        input_dict["adjacency"] =f(input_dict["adjacency"])
+        
+#         num_agent_mask = input_dict['num_agent_mask'] 
+#         input_dict["adjacency"] = input_dict["adjacency"] * num_agent_mask.unsqueeze(1) * num_agent_mask.unsqueeze(2)        
+        input_dict['adjacency'][:,0,0] = input_dict['adjacency'][:,0,0].clamp(min = 1.0)
+
+        with torch.no_grad():
+            preds, waypoint_preds, all_dist_params, attention, adjacency, gan_features, graph_output = model(**input_dict)
+
+            loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
+
+            get_metric(metrics, ade, fde, mr, loss, len(input_dict["adjacency"]))
+
+    write_json = {
+        "metric": calc_mean(metrics)
+    }
+    print(write_json)
+
+
+# -
+
+relu = torch.nn.functional.relu
 
 
 # +
 # for batch_idx, batch in enumerate(tqdm(val_dataset)):
+
 #     input_dict, target_dict = batch[0], batch[1]
-#     break
+
+#     # get cuda
+#     input_dict["agent_features"] = input_dict["agent_features"].cuda()
+#     input_dict["social_features"] = input_dict["social_features"].cuda()
+#     input_dict["social_label_features"] = input_dict["social_label_features"].cuda()
+#     input_dict["adjacency"] = input_dict["adjacency"].cuda()
+#     input_dict["label_adjacency"] = input_dict["label_adjacency"].cuda()
+#     input_dict["num_agent_mask"] = input_dict["num_agent_mask"].cuda()
+#     input_dict["ifc_helpers"]["agent_oracle_centerline"] = input_dict["ifc_helpers"]["agent_oracle_centerline"].cuda()
+#     input_dict["ifc_helpers"]["agent_oracle_centerline_lengths"] = input_dict["ifc_helpers"]["agent_oracle_centerline_lengths"].cuda()
+#     input_dict["ifc_helpers"]["social_oracle_centerline"] = input_dict["ifc_helpers"]["social_oracle_centerline"].cuda()
+#     input_dict["ifc_helpers"]["social_oracle_centerline_lengths"] = input_dict["ifc_helpers"]["social_oracle_centerline_lengths"].cuda()
+
+#     target_dict["agent_labels"] = target_dict["agent_labels"].cuda()
+#     if batch_idx > 0:
+#         break
+# #     input_dict["adjacency"] =f(input_dict["adjacency"])
+    
+# -
+
+model = model.cuda()
 
 # +
+# f1 = lambda w: softmax(normalize_max1(abs(w))*2) * len(w[0])
+# f1 = lambda w: (normalize_max1((w+5000).clamp(min = 0.0))* 10000).clamp(max = 1.0)
+# f1 = lambda w: (softmax(w) * len(w[0])) ** 0.001
+# f2 = lambda w: (softmax(w) * len(w[0])) ** 0.005
+# f3 = lambda w: (softmax(w) * len(w[0])) ** 0.01
+# f4 = lambda w: (softmax(w) * len(w[0])) ** 0.05
+# f5 = lambda w: (softmax(w) * len(w[0])) ** 0.06
+# f6 = lambda w: (softmax(w) * len(w[0])) ** 0.07
+# f7 = lambda w: (softmax(w) * len(w[0])) ** 0.08
+# f8 = lambda w: (softmax(w) * len(w[0])) ** 0.09
+# f9 = lambda w: (softmax(w) * len(w[0])) ** 0.10
 
-for epoch_id in range(1):
+# f7 = lambda w: (softmax(normalize_max1(abs(w))) * len(w[0])).clamp(min = 0.0, max=2.0)
+# f2 = lambda w: softmax(normalize_max1(relu(w))) * len(w[0])
+# f3 = lambda w: softmax(normalize_max1(abs(w))*2) * len(w[0])
+# f4 = lambda w: softmax(normalize_max1(relu(w))*2) * len(w[0])
+# f5 = lambda w: softmax(normalize_max1(abs(w))*0.5) * len(w[0])
+# f6 = lambda w: softmax(normalize_max1(relu(w))*0.5) * len(w[0])
+
+
+error_data = []
+f1 = lambda w: softmax(normalize_max1(abs(w))) * len(w[0])
+f2 = lambda w: softmax(normalize_max1(relu(w) + 0.000001)) * len(w[0])
+f3 = lambda w: softmax(normalize_max1(abs(w))*2) * len(w[0])
+f4 = lambda w: softmax(normalize_max1(relu(w))*2 + 0.000001) * len(w[0])
+f5 = lambda w: softmax(normalize_max1(abs(w))*0.5) * len(w[0])
+f6 = lambda w: softmax(normalize_max1(relu(w))*0.5 + 0.000001) * len(w[0])
+
+f7 = lambda w: softmax(normalize_max1(w)) * len(w[0])
+f8 = lambda w: softmax(normalize_max1(w)*2) * len(w[0])
+f9 = lambda w: softmax(normalize_max1(w)*0.5) * len(w[0])
+
+f10 = lambda w: softmax(abs(w)) * len(w[0])
+f11 = lambda w: softmax(relu(w)) * len(w[0])
+f12 = lambda w: softmax(abs(w)*2) * len(w[0])
+f13 = lambda w: softmax(relu(w)*2) * len(w[0])
+f14 = lambda w: softmax(abs(w)*0.5) * len(w[0])
+f15 = lambda w: softmax(relu(w)*0.5) * len(w[0])
+
+
+f16 = lambda w: relu(normalize_max1(w)) * len(w[0])
+f17 = lambda w: abs(normalize_max1(w)) * len(w[0])
+f18 = lambda w: relu(normalize_max1(w)*0.5) * len(w[0])
+f19 = lambda w: abs(normalize_max1(w)*0.5) * len(w[0])
+f20 = lambda w: relu(normalize_max1(w)*2) * len(w[0])
+f21 = lambda w: abs(normalize_max1(w)*2) * len(w[0])
+
+f22 = lambda w: normalize_max1(w) * len(w[0])
+f23 = lambda w: normalize_max1(w) * len(w[0])
+f24 = lambda w: normalize_max1(w)*0.5 * len(w[0])
+f25 = lambda w: normalize_max1(w)*0.5 * len(w[0])
+f26 = lambda w: normalize_max1(w)*2 * len(w[0])
+f27 = lambda w: normalize_max1(w)*2 * len(w[0])
+
+
+to_gaussian = lambda arr, mean = 0, std = 1: ((arr - torch.mean(arr))/ torch.std(arr) ) * std + mean
+
+
+
+# for f_idx, f in enumerate([ f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20, f21, f22, f23, f24, f25, f26, f27]):
+for f_idx, f in enumerate([0]):
+    torch.manual_seed(0)
+    torch.cuda.manual_seed(0)
+    torch.cuda.manual_seed_all(0)
+    np.random.seed(0)
+    cudnn.benchmark = False
+    cudnn.deterministic = True
+    random.seed(0)
+    torch.backends.cudnn.benchmark = False
+
+    metrics = {
+        "ade": 0.0,
+        "fde": 0.0,
+        "mr": 0.0,
+        "loss": 0.0,
+        "length": 0,
+    }
+    
+    for batch_idx, batch in enumerate(tqdm(val_dataset)):
+
+        input_dict, target_dict = batch[0], batch[1]
+
+        # get cuda
+        input_dict["agent_features"] = input_dict["agent_features"].cuda()
+        input_dict["social_features"] = input_dict["social_features"].cuda()
+        input_dict["social_label_features"] = input_dict["social_label_features"].cuda()
+        input_dict["label_adjacency"] = input_dict["label_adjacency"].cuda()
+        input_dict["num_agent_mask"] = input_dict["num_agent_mask"].cuda()
+        input_dict["ifc_helpers"]["agent_oracle_centerline"] = input_dict["ifc_helpers"]["agent_oracle_centerline"].cuda()
+        input_dict["ifc_helpers"]["agent_oracle_centerline_lengths"] = input_dict["ifc_helpers"]["agent_oracle_centerline_lengths"].cuda()
+        input_dict["ifc_helpers"]["social_oracle_centerline"] = input_dict["ifc_helpers"]["social_oracle_centerline"].cuda()
+        input_dict["ifc_helpers"]["social_oracle_centerline_lengths"] = input_dict["ifc_helpers"]["social_oracle_centerline_lengths"].cuda()
+        input_dict["ifc_helpers"]["agent_oracle_centerline"] = input_dict["ifc_helpers"]["agent_oracle_centerline"].cuda()
+        input_dict["adjacency"] = input_dict["adjacency"].cuda()
+        
+        target_dict["agent_labels"] = target_dict["agent_labels"].cuda()
+        for i in range(len(input_dict["adjacency"])):
+            num_agent = int(torch.sum(input_dict['num_agent_mask'][0]))
+            input_dict["adjacency"][0,0, :num_agent] = to_gaussian(input_dict["adjacency"][0,0, :num_agent], mean = 1, std = 0.05)
+            
+        
+        num_agent_mask = input_dict['num_agent_mask'] 
+        input_dict["adjacency"] = input_dict["adjacency"] * num_agent_mask.unsqueeze(1) * num_agent_mask.unsqueeze(2)        
+        
+        with torch.no_grad():
+            preds, waypoint_preds, all_dist_params, attention, adjacency, gan_features, graph_output = model(**input_dict)
+
+            loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
+
+
+            get_metric(metrics, ade, fde, mr, loss, len(input_dict["adjacency"]))
+
+    if parser.remove_high_related_score:
+        for i in range(len(DA_model_metric)):
+            DA_model_metric[i] = calc_mean(DA_model_metric[i])
+    else:
+        DA_model_metric = None
+        
+    metrics = calc_mean(metrics)
+
+    write_json = {
+        "metric": metrics,
+        "XAI_lambda": parser.XAI_lambda
+    }
+    print(f_idx)
+    print(write_json)
+# -
+
+to_gaussian(input_dict["adjacency"][0,0][:6], mean = 1, std = 0.05)
+
+num_agent = int(torch.sum(input_dict['num_agent_mask'][0]))
+input_dict["adjacency"][0,0, :num_agent]
+
+input_dict['num_agent_mask'][0]
+
+input_dict["adjacency"].shape
+
+
+# +
+f1 = lambda w: (softmax(w) * len(w[0])) ** 0.01
+f2 = lambda w: (softmax(w) * len(w[0])) ** 0.05
+f3 = lambda w: (softmax(w) * len(w[0])) ** 0.1
+f4 = lambda w: (softmax(w) * len(w[0])) ** 0.2
+f5 = lambda w: (softmax(w) * len(w[0])) ** 0.3
+f6 = lambda w: (softmax(w) * len(w[0])) ** 0.4
+f7 = lambda w: (softmax(w) * len(w[0])) ** 0.5
+f8 = lambda w: (softmax(w) * len(w[0])) ** 0.6
+f9 = lambda w: (softmax(w) * len(w[0])) ** 0.7
+f10 = lambda w: (softmax(w) * len(w[0])) ** 0.8
+f11 = lambda w: (softmax(w) * len(w[0])) ** 0.9
+f12 = lambda w: (softmax(w) * len(w[0])) ** 1.0
+f13 = lambda w: (softmax(w) * len(w[0])) ** 1.1
+f14 = lambda w: (softmax(w) * len(w[0])) ** 1.2
+f15 = lambda w: (softmax(w) * len(w[0])) ** 1.3
+f16 = lambda w: (softmax(w) * len(w[0])) ** 1.4
+f17 = lambda w: (softmax(w) * len(w[0])) ** 1.5
+f18= lambda w: (softmax(w) * len(w[0])) ** 1.6
+f19 = lambda w: (softmax(w) * len(w[0])) ** 1.7
+f20 = lambda w: (softmax(w) * len(w[0])) ** 1.8
+f21 = lambda w: (softmax(w) * len(w[0])) ** 1.9
+f22 = lambda w: (softmax(w) * len(w[0])) ** 2.0
+
+f23 = lambda w: (softmax(normalize_max1(abs(w))) * len(w[0])).clamp(min = 0.0, max=2.0)
+f24 = lambda w: (softmax(normalize_max1(relu(w) + 0.00001)) * len(w[0])).clamp(min = 0.0, max=2.0)
+f25 = lambda w: (softmax(normalize_max1(abs(w))*2) * len(w[0])).clamp(min = 0.0, max=2.0)
+f26 = lambda w: (softmax(normalize_max1(relu(w) + 0.00001)*2) * len(w[0])).clamp(min = 0.0, max=2.0)
+f27 = lambda w: (softmax(normalize_max1(abs(w))*0.5) * len(w[0])).clamp(min = 0.0, max=2.0)
+f28 = lambda w: (softmax(normalize_max1(relu(w) + 0.00001)*0.5) * len(w[0])).clamp(min = 0.0, max=2.0)
+
+
+
+
+
+for f_idx, f in enumerate([f23, f24, f25, f26, f27, f28]):
+    torch.manual_seed(0)
+    torch.cuda.manual_seed(0)
+    torch.cuda.manual_seed_all(0)
+    np.random.seed(0)
+    cudnn.benchmark = False
+    cudnn.deterministic = True
+    random.seed(0)
+    torch.backends.cudnn.benchmark = False
+
+    metrics = {
+        "ade": 0.0,
+        "fde": 0.0,
+        "mr": 0.0,
+        "loss": 0.0,
+        "length": 0,
+    }
+    
+    for batch_idx, batch in enumerate(tqdm(val_dataset)):
+
+        input_dict, target_dict = batch[0], batch[1]
+
+        # get cuda
+        input_dict["agent_features"] = input_dict["agent_features"].cuda()
+        input_dict["social_features"] = input_dict["social_features"].cuda()
+        input_dict["social_label_features"] = input_dict["social_label_features"].cuda()
+        input_dict["label_adjacency"] = input_dict["label_adjacency"].cuda()
+        input_dict["num_agent_mask"] = input_dict["num_agent_mask"].cuda()
+        input_dict["ifc_helpers"]["agent_oracle_centerline"] = input_dict["ifc_helpers"]["agent_oracle_centerline"].cuda()
+        input_dict["ifc_helpers"]["agent_oracle_centerline_lengths"] = input_dict["ifc_helpers"]["agent_oracle_centerline_lengths"].cuda()
+        input_dict["ifc_helpers"]["social_oracle_centerline"] = input_dict["ifc_helpers"]["social_oracle_centerline"].cuda()
+        input_dict["ifc_helpers"]["social_oracle_centerline_lengths"] = input_dict["ifc_helpers"]["social_oracle_centerline_lengths"].cuda()
+        input_dict["ifc_helpers"]["agent_oracle_centerline"] = input_dict["ifc_helpers"]["agent_oracle_centerline"].cuda()
+        input_dict["adjacency"] = input_dict["adjacency"].cuda()
+        
+        target_dict["agent_labels"] = target_dict["agent_labels"].cuda()
+        input_dict["adjacency"] =f(input_dict["adjacency"])
+        
+        num_agent_mask = input_dict['num_agent_mask'] 
+        input_dict["adjacency"] = input_dict["adjacency"] * num_agent_mask.unsqueeze(1) * num_agent_mask.unsqueeze(2)        
+        
+
+        with torch.no_grad():
+            preds, waypoint_preds, all_dist_params, attention, adjacency, gan_features, graph_output = model(**input_dict)
+
+            loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
+
+            get_metric(metrics, ade, fde, mr, loss, len(input_dict["adjacency"]))
+
+    if parser.remove_high_related_score:
+        for i in range(len(DA_model_metric)):
+            DA_model_metric[i] = calc_mean(DA_model_metric[i])
+    else:
+        DA_model_metric = None
+        
+    metrics = calc_mean(metrics)
+
+    write_json = {
+        "metric": metrics,
+        "XAI_lambda": parser.XAI_lambda
+    }
+    print(f_idx)
+    print(write_json)
+    
+# -
+
+a = torch.tensor([[[0,0,0]]]).float() + 1
+f24(a)
+
+model.load_state_dict(torch.load("experiments/example_old/checkpoints/epoch=122.ckpt")['state_dict'], strict=False) # 학습할 때에는 graph 모듈에서 p에 해당하는 network가 없었으므로
+
+
+for batch_idx, batch in enumerate(tqdm(val_dataset)):
+    input_dict, target_dict = batch[0], batch[1]
+    print(input_dict['adjacency'][0][0])
+    if batch_idx > 5:
+        break
+
+# +
+f1 = lambda w: (softmax(w) * len(w[0]))
+f1 = lambda w: torch.exp(w.clamp(max = 2))
+f2 = lambda w: f1(w) *(f1(w) > 0.998)
+# f2 = lambda w: softmax(normalize_max1(abs(w))*0.5) * len(w[0])
+
+f3 = lambda w: torch.exp(w.clamp(max = 2))
+
+f2(input_dict['adjacency'])[15][0], input_dict['adjacency'][:,0,0].shape
+# -
+
+input_dict['adjacency'][10][0]
+
+f1(input_dict['adjacency'][10][0])
+
+# +
+# f1 = lambda w: (softmax(normalize_max1(abs(w))) * len(w[0])).clamp(min = 0.0, max=2.0)
+# f2 = lambda w: softmax(normalize_max1(abs(w))*0.5) * len(w[0])
+
+
+# f1 = lambda w: torch.exp(w.clamp(max = 2)) ** 0.5
+# f2 = lambda w: torch.exp(w.clamp(max = 2)) ** 1
+# f3 = lambda w: torch.exp(w.clamp(max = 2)) ** 2
+
+# f12 = lambda w: softmax(normalize_max1(abs(w))*0.5) * len(w[0])
+# f12 = lambda w: softmax(normalize_max1(abs(w))*0.5) * len(w[0])
+# f2 = lambda w: softmax(normalize_max1(abs(w))*0.5) * len(w[0])
+# f1 = lambda w: -(torch.exp(w.clamp(max = 2)) ** 0.5)
+# f2 = lambda w: torch.exp(w.clamp(max = 2)) ** 2
+# f3 = lambda w: torch.ones_like(w)
+
+for f_idx, f in enumerate([f1, f2, f3]):#, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20, f21, f22, f23, f24, f25, f26, f27, f28]):
+    torch.manual_seed(0)
+    torch.cuda.manual_seed(0)
+    torch.cuda.manual_seed_all(0)
+    np.random.seed(0)
+    cudnn.benchmark = False
+    cudnn.deterministic = True
+    random.seed(0)
+    torch.backends.cudnn.benchmark = False
+
+    metrics = {
+        "ade": 0.0,
+        "fde": 0.0,
+        "mr": 0.0,
+        "loss": 0.0,
+        "length": 0,
+    }
+    
+    for batch_idx, batch in enumerate(tqdm(val_dataset)):
+
+        input_dict, target_dict = batch[0], batch[1]
+
+        # get cuda
+        input_dict["agent_features"] = input_dict["agent_features"].cuda()
+        input_dict["social_features"] = input_dict["social_features"].cuda()
+        input_dict["social_label_features"] = input_dict["social_label_features"].cuda()
+        input_dict["label_adjacency"] = input_dict["label_adjacency"].cuda()
+        input_dict["num_agent_mask"] = input_dict["num_agent_mask"].cuda()
+        input_dict["ifc_helpers"]["agent_oracle_centerline"] = input_dict["ifc_helpers"]["agent_oracle_centerline"].cuda()
+        input_dict["ifc_helpers"]["agent_oracle_centerline_lengths"] = input_dict["ifc_helpers"]["agent_oracle_centerline_lengths"].cuda()
+        input_dict["ifc_helpers"]["social_oracle_centerline"] = input_dict["ifc_helpers"]["social_oracle_centerline"].cuda()
+        input_dict["ifc_helpers"]["social_oracle_centerline_lengths"] = input_dict["ifc_helpers"]["social_oracle_centerline_lengths"].cuda()
+        input_dict["ifc_helpers"]["agent_oracle_centerline"] = input_dict["ifc_helpers"]["agent_oracle_centerline"].cuda()
+        input_dict["adjacency"] = input_dict["adjacency"].cuda()
+        
+        target_dict["agent_labels"] = target_dict["agent_labels"].cuda()
+        input_dict["adjacency"] =f(input_dict["adjacency"])
+        
+        num_agent_mask = input_dict['num_agent_mask'] 
+#         input_dict["adjacency"] = input_dict["adjacency"] * num_agent_mask.unsqueeze(1) * num_agent_mask.unsqueeze(2)        
+#         input_dict['adjacency'][:,0,0] = input_dict['adjacency'][:,0,0].clamp(min = 1.0)
+
+        with torch.no_grad():
+            preds, waypoint_preds, all_dist_params, attention, adjacency, gan_features, graph_output = model(**input_dict)
+
+            loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
+
+            get_metric(metrics, ade, fde, mr, loss, len(input_dict["adjacency"]))
+
+    if parser.remove_high_related_score:
+        for i in range(len(DA_model_metric)):
+            DA_model_metric[i] = calc_mean(DA_model_metric[i])
+    else:
+        DA_model_metric = None
+        
+    metrics = calc_mean(metrics)
+
+    write_json = {
+        "metric": metrics,
+        "XAI_lambda": parser.XAI_lambda
+    }
+    print(f_idx)
+    print(write_json)
+    
+# -
+
+{'metric': {'fde': 1.146207567647154, 'ade': 0.7541295413213265, 'loss': 6.052047431831375, 'mr': 0.11783035856342818}, 'XAI_lambda': 0.2}
+
+
+input_dict["adjacency"]
+
+calc_mean(metrics)
+
+od['adjacency_lrp'][0]
+
+for e in error_data:
+    e, e2 = e
+    with open(e['ifc_helpers']['file_path'][0].replace('LRP_adjacency', 'argoverse_with_LRP'), 'rb') as ff:
+        od = pickle.load(ff)
+#     if od['metric']['fde'] > 2.5:
+    print(e2, float(torch.std(e['adjacency'][0,0])),
+    float(torch.max(e['adjacency'][0,0])),
+    float(torch.min(e['adjacency'][0,0])))
+
+fde, od['metric']['fde']
+
+torch.std(e['adjacency'][0,0])
+
+error_data[0][0]['adjacency']
+
+error_data[0][1]
+
+od['metric']['fde']
+
+for e in error_data:
+    e, e2 = e
+    with open(e['ifc_helpers']['file_path'][0].replace('LRP_adjacency', 'argoverse_with_LRP'), 'rb') as ff:
+        od = pickle.load(ff)
+    if od['metric']['fde'] > 2.5:
+        print(e2, float(torch.std(e['adjacency'][0,0])),
+        float(torch.max(e['adjacency'][0,0])),
+        float(torch.min(e['adjacency'][0,0])))
+
+with open(e['ifc_helpers']['file_path'][0].replace('LRP_adjacency', 'argoverse_with_LRP'), 'rb') as ff:
+    od = pickle.load(ff)
+
+od['metric']['fde']
+
+# +
+f1 = lambda w: softmax(normalize_max1(abs(w))) * len(w[0])
+f2 = lambda w: softmax(normalize_max1(relu(w))) * len(w[0])
+f3 = lambda w: softmax(normalize_max1(abs(w))*2) * len(w[0])
+f4 = lambda w: softmax(normalize_max1(relu(w))*2) * len(w[0])
+f5 = lambda w: softmax(normalize_max1(abs(w))*0.5) * len(w[0])
+f6 = lambda w: softmax(normalize_max1(relu(w))*0.5) * len(w[0])
+
+input_dict['adjacency'] = f1(input_dict['adjacency'])
+# -
+
+fde
+
+preds, waypoint_preds, all_dist_params, attention, adjacency, gan_features, graph_output = model(**input_dict)
+
+loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
+
+
+fde
+
+# +
+f1 = lambda w: softmax(normalize_max1(abs(w))) * len(w[0])
+f2 = lambda w: softmax(normalize_max1(relu(w))) * len(w[0])
+f3 = lambda w: softmax(normalize_max1(abs(w))*2) * len(w[0])
+f4 = lambda w: softmax(normalize_max1(relu(w))*2) * len(w[0])
+f5 = lambda w: softmax(normalize_max1(abs(w))*0.5) * len(w[0])
+f6 = lambda w: softmax(normalize_max1(relu(w))*0.5) * len(w[0])
+
+f7 = lambda w: softmax(normalize_max1(w)) * len(w[0])
+f8 = lambda w: softmax(normalize_max1(w)*2) * len(w[0])
+f9 = lambda w: softmax(normalize_max1(w)*0.5) * len(w[0])
+
+f10 = lambda w: softmax(abs(w)) * len(w[0])
+f11 = lambda w: softmax(relu(w)) * len(w[0])
+f12 = lambda w: softmax(abs(w)*2) * len(w[0])
+f13 = lambda w: softmax(relu(w)*2) * len(w[0])
+f14 = lambda w: softmax(abs(w)*0.5) * len(w[0])
+f15 = lambda w: softmax(relu(w)*0.5) * len(w[0])
+
+
+f16 = lambda w: relu(normalize_max1(w)) * len(w[0])
+f17 = lambda w: abs(normalize_max1(w)) * len(w[0])
+f18 = lambda w: relu(normalize_max1(w)*0.5) * len(w[0])
+f19 = lambda w: abs(normalize_max1(w)*0.5) * len(w[0])
+f20 = lambda w: relu(normalize_max1(w)*2) * len(w[0])
+f21 = lambda w: abs(normalize_max1(w)*2) * len(w[0])
+
+f22 = lambda w: normalize_max1(w) * len(w[0])
+f23 = lambda w: normalize_max1(w) * len(w[0])
+f24 = lambda w: normalize_max1(w)*0.5 * len(w[0])
+f25 = lambda w: normalize_max1(w)*0.5 * len(w[0])
+f26 = lambda w: normalize_max1(w)*2 * len(w[0])
+f27 = lambda w: normalize_max1(w)*2 * len(w[0])
+
+
+for f_idx, f in enumerate([f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f17, f18, f19, f20, f21, f22, f23, f24, f25, f26, f27]):
     torch.manual_seed(0)
     torch.cuda.manual_seed(0)
     torch.cuda.manual_seed_all(0)
@@ -212,17 +715,17 @@ for epoch_id in range(1):
         input_dict["ifc_helpers"]["agent_oracle_centerline"] = input_dict["ifc_helpers"]["agent_oracle_centerline"].cuda()
         
         target_dict["agent_labels"] = target_dict["agent_labels"].cuda()
-        input_dict["adjacency"] = (softmax(normalize_max1(abs(input_dict["adjacency"])) * 2) * len(input_dict['adjacency'][0]))
+        input_dict["adjacency"] =f(input_dict["adjacency"])
                 
         with torch.no_grad():
             preds, waypoint_preds, all_dist_params, attention, adjacency, gan_features, graph_output = model(**input_dict)
             loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
-    #         loss.backward()
-    #         print(adjacency.grad)
-    #         assert adjacency.grad != None, "adjacency_grad is None"
-    #         assert gan_features.grad != None, "gan_features_grad is None"
+#             loss.backward()
+#             print(adjacency.grad)
+#             assert adjacency.grad != None, "adjacency_grad is None"
+#             assert gan_features.grad != None, "gan_features_grad is None"
 
-    #         optimizer.step()
+#             optimizer.step()
 
             get_metric(metrics, ade, fde, mr, loss, len(input_dict["adjacency"]))
 
@@ -236,70 +739,13 @@ for epoch_id in range(1):
     metrics = calc_mean(metrics)
 
     write_json = {
-        "adjacency_exp": metrics,
+        "metric": metrics,
         "XAI_lambda": parser.XAI_lambda
     }
+    print(f_idx)
     print(write_json)
-    break
+
 # -
-
-# * 5
-with_abs = {'adjacency_exp': {'fde': 1.1731029413081782, 'ade': 0.7683577373243315, 'loss': 6.154412361983109, 'mr': 0.12008512168699882}, 'XAI_lambda': 0.2}
-not_abs   = {'adjacency_exp': {'fde': 1.1864584436482344, 'ade': 0.7731951855434113, 'loss': 6.19484556064366, 'mr': 0.12221321253386112}, 'XAI_lambda': 0.2}
-
-# * 2
-with_abs = {'adjacency_exp': {'fde': 1.1743766841107552, 'ade': 0.7683680386112246, 'loss': 6.158736481374703, 'mr': 0.1202624623573498}, 'XAI_lambda': 0.2}
-not_abs   = {'adjacency_exp': {'fde': 1.1801205000318784, 'ade': 0.7704535153021347, 'loss': 6.1778480520507415, 'mr': 0.12081981967661996}, 'XAI_lambda': 0.2}
-
-# **2
-with_abs = {'adjacency_exp': {'fde': 1.1743739268825177, 'ade': 0.7683675679592261, 'loss': 6.158735879094774, 'mr': 0.1202624623573498}, 'XAI_lambda': 0.2}
-not_abs   = {'adjacency_exp': {'fde': 1.1801190559903667, 'ade': 0.7704613011618785, 'loss': 6.177847673209708, 'mr': 0.12081981967661996}, 'XAI_lambda': 0.2}
-
-
-with_abs = {'adjacency_exp': {'fde': 1.1742021508868232, 'ade': 0.7685741424367261, 'loss': 6.160870625898332, 'mr': 0.12005978729689126}, 'XAI_lambda': 0.2}
-not_abs =   {'adjacency_exp': {'fde': 1.1773426102683473, 'ade': 0.7695322885269765, 'loss': 6.172085775553962, 'mr': 0.12003445281014058}, 'XAI_lambda': 0.2}
-
-
-# +
-def func(a,b,c,d):
-    with torch.backends.cudnn.flags(enabled=False):
-        preds, waypoint_preds, all_dist_params, attention, adjacency, gan_features, graph_output = model(a, b, c, d, ifc_helpers = input_dict["ifc_helpers"])
-        loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
-        loss = loss.cpu()
-        print(loss)
-        return loss
-
-torch.autograd.functional.hessian(func,tuple([input_dict["agent_features"], input_dict["social_features"], input_dict["adjacency"],
-                                                                                   input_dict["num_agent_mask"]]))
-# -
-w = torch.tensor([-5,3,1])
-torch.max(abs(w))
-
-
-[i+1 for i in range(len(w.size())-1)]
-
-# +
-for batch_idx, batch in enumerate(tqdm(val_dataset)):
-    input_dict, target_dict = batch[0], batch[1]
-    input_dict["adjacency"] = softmax(input_dict["adjacency"]) * len(input_dict['adjacency'][0])
-    print(input_dict['adjacency'].shape)
-    
-#     print(softmax(input_dict['adjacency'][:, 0, :, :]) * len(input_dict['adjacency'][0][0]))
-    break
-# -
-
-input_dict["adjacency"].shape
-
-input_dict["adjacency"]
-
-# +
-metric_exp = {
-    "ade": 0.0,
-    "fde": 0.0,
-    "mr": 0.0,
-    "loss": 0.0,
-    "length": 0,
-}
 
 for batch_idx, batch in enumerate(tqdm(val_dataset)):
 
@@ -309,7 +755,7 @@ for batch_idx, batch in enumerate(tqdm(val_dataset)):
     input_dict["agent_features"] = input_dict["agent_features"].cuda()
     input_dict["social_features"] = input_dict["social_features"].cuda()
     input_dict["social_label_features"] = input_dict["social_label_features"].cuda()
-#         input_dict["adjacency"] = input_dict["adjacency"].cuda()
+    input_dict["adjacency"] = input_dict["adjacency"].cuda()
     input_dict["label_adjacency"] = input_dict["label_adjacency"].cuda()
     input_dict["num_agent_mask"] = input_dict["num_agent_mask"].cuda()
     input_dict["ifc_helpers"]["agent_oracle_centerline"] = input_dict["ifc_helpers"]["agent_oracle_centerline"].cuda()
@@ -319,30 +765,6 @@ for batch_idx, batch in enumerate(tqdm(val_dataset)):
     input_dict["ifc_helpers"]["agent_oracle_centerline"] = input_dict["ifc_helpers"]["agent_oracle_centerline"].cuda()
 
     target_dict["agent_labels"] = target_dict["agent_labels"].cuda()
-    with torch.no_grad():
-        preds, waypoint_preds, all_dist_params, attention, adjacency, gan_features, graph_output = model(**input_dict)
-
-
-        loss, (ade, fde, mr) = model.eval_preds(preds, target_dict, waypoint_preds)
-        get_metric(metric_exp, ade, fde, mr, loss,len(adjacency_grad))
-
-metric_exp = calc_mean(metric_exp)
-print(metric_exp)
-# -
-
-with open("train_with_XAI.json", "w") as j:
-    json.dump(metric_exp, j)
-
-metrics
-
-adjacency_exp
-
-# softmax말고 0~1사이로
-for batch_idx, batch in enumerate(tqdm(train_dataset)):
-#     print(batch[0]['adjacency'])
-    print(softmax(batch[0]['adjacency']) * len(batch[0]['adjacency'][0][0]))
-#     print(softmax(batch[0]['adjacency']))
     break
-
-len(input_dict["adjacency"])
+#     input_dict["adjacency"] =f(input_dict["adjacency"])
 
